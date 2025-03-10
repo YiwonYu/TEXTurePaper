@@ -22,7 +22,7 @@ from src.stable_diffusion_depth import StableDiffusion
 from src.training.views_dataset import ViewsDataset, MultiviewDataset
 from src.utils import make_path, tensor2numpy
 
-
+from torchvision.utils import save_image
 class TEXTure:
     def __init__(self, cfg: TrainConfig):
         self.cfg = cfg
@@ -42,9 +42,12 @@ class TEXTure:
         pyrallis.dump(self.cfg, (self.exp_path / 'config.yaml').open('w'))
 
         self.view_dirs = ['front', 'left', 'back', 'right', 'overhead', 'bottom']
+        # Mesh 불러오는 과정
         self.mesh_model = self.init_mesh_model()
+        # Diffusion Initialization
         self.diffusion = self.init_diffusion()
-        self.text_z, self.text_string = self.calc_text_embeddings()
+        # Text_embeddings initialization
+        self.text_z, self.text_string ,self.text_z_origin, self.text_string_origin= self.calc_text_embeddings()
         self.dataloaders = self.init_dataloaders()
         self.back_im = torch.Tensor(np.array(Image.open(self.cfg.guide.background_img).convert('RGB'))).to(
             self.device).permute(2, 0,
@@ -83,12 +86,15 @@ class TEXTure:
 
     def calc_text_embeddings(self) -> Union[torch.Tensor, List[torch.Tensor]]:
         ref_text = self.cfg.guide.text
+        
         if not self.cfg.guide.append_direction:
             text_z = self.diffusion.get_text_embeds([ref_text])
             text_string = ref_text
         else:
             text_z = []
             text_string = []
+            text_string_origin = ref_text.split('{', 1)[0].strip()
+            text_z_origin = self.diffusion.get_text_embeds([ref_text.split('{', 1)[0].strip()])
             for d in self.view_dirs:
                 text = ref_text.format(d)
                 text_string.append(text)
@@ -96,7 +102,7 @@ class TEXTure:
                 negative_prompt = None
                 logger.info(negative_prompt)
                 text_z.append(self.diffusion.get_text_embeds([text], negative_prompt=negative_prompt))
-        return text_z, text_string
+        return text_z, text_string, text_z_origin, text_string_origin
 
     def init_dataloaders(self) -> Dict[str, DataLoader]:
         init_train_dataloader = MultiviewDataset(self.cfg.render, device=self.device).dataloader()
@@ -120,17 +126,27 @@ class TEXTure:
         logger.info('Starting training ^_^')
         # Evaluate the initialization
         self.evaluate(self.dataloaders['val'], self.eval_renders_path)
+        # TexturedMeshModle to training Mode <-> self.mesh_model.eval()
         self.mesh_model.train()
 
         pbar = tqdm(total=len(self.dataloaders['train']), initial=self.paint_step,
                     bar_format='{desc}: {percentage:3.0f}% painting step {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
 
+        #self.dataloaders : train, val, val_large dict
+        #train 에는 Mesh, Phi, theta등 카메라 뷰 parameter 포함됨
         for data in self.dataloaders['train']:
-            self.paint_step += 1
-            pbar.update(1)
-            self.paint_viewpoint(data)
-            self.evaluate(self.dataloaders['val'], self.eval_renders_path)
-            self.mesh_model.train()
+            if self.paint_step == 0:
+                self.paint_step += 1
+                pbar.update(1)
+                self.paint_viewpoint_initial(data)
+
+
+            else :
+                self.paint_step += 1
+                pbar.update(1)
+                self.paint_viewpoint(data)
+                self.evaluate(self.dataloaders['val'], self.eval_renders_path)
+                self.mesh_model.train()
 
         self.mesh_model.change_default_to_median()
         logger.info('Finished Painting ^_^')
@@ -138,6 +154,7 @@ class TEXTure:
         self.full_eval()
         logger.info('\tDone!')
 
+    # Dataloader을 이용해 mesh_model의 현재상태 평가,save picture, video 생성
     def evaluate(self, dataloader: DataLoader, save_path: Path, save_as_video: bool = False):
         logger.info(f'Evaluating and saving model, painting iteration #{self.paint_step}...')
         self.mesh_model.eval()
@@ -193,6 +210,8 @@ class TEXTure:
         logger.info(f'--- Painting step #{self.paint_step} ---')
         theta, phi, radius = data['theta'], data['phi'], data['radius']
         # If offset of phi was set from code
+
+        #TODO make phi 0, 90, 180, 270
         phi = phi - np.deg2rad(self.cfg.render.front_offset)
         phi = float(phi + 2 * np.pi if phi < 0 else phi)
         logger.info(f'Painting from theta: {theta}, phi: {phi}, radius: {radius}')
@@ -201,11 +220,15 @@ class TEXTure:
         if self.cfg.guide.use_background_color:
             background = torch.Tensor([0, 0.8, 0]).to(self.device)
         else:
+            #background image를 grid size로 맞춤
+            #self.back_im.unsqueeze(0) : [1, 3, 1024, 1024]
             background = F.interpolate(self.back_im.unsqueeze(0),
                                        (self.cfg.render.train_grid_size, self.cfg.render.train_grid_size),
                                        mode='bilinear', align_corners=False)
 
         # Render from viewpoint
+        # 여기서 정면 시작, Rgb 이미지, depth를 뽑는다.
+        # outputs[Tensor] : image, mask, background, foreground, depth, normals, render_cache(uv_features, face_normals, face_idx, depth_map), texture_map
         outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background)
         render_cache = outputs['render_cache']
         rgb_render_raw = outputs['image']  # Render where missing values have special color
@@ -231,12 +254,17 @@ class TEXTure:
         if self.cfg.guide.append_direction:
             dirs = data['dir']  # [B,]
             text_z = self.text_z[dirs]
+            text_z_origin = self.text_z_origin
+            
             text_string = self.text_string[dirs]
+            text_string_origin = self.text_string_origin
         else:
             text_z = self.text_z
+            text_z_origin = self.text_z_origin
             text_string = self.text_string
+            text_string_origin = self.text_string_origin
         logger.info(f'text: {text_string}')
-
+        #TODO we have to make 4 captured view to trimap
         update_mask, generate_mask, refine_mask = self.calculate_trimap(rgb_render_raw=rgb_render_raw,
                                                                         depth_render=depth_render,
                                                                         z_normals=z_normals,
@@ -292,6 +320,164 @@ class TEXTure:
         fitted_pred_rgb, _ = self.project_back(render_cache=render_cache, background=background, rgb_output=rgb_output,
                                                object_mask=object_mask, update_mask=update_mask, z_normals=z_normals,
                                                z_normals_cache=z_normals_cache)
+        self.log_train_image(fitted_pred_rgb, name='fitted')
+
+        return
+
+    def paint_viewpoint_initial(self, data: Dict[str, Any]):
+        logger.info(f'--- Painting step #{self.paint_step} ---')
+        theta, phi, radius = data['theta'], data['phi'], data['radius']
+        phi_angles = [0, np.pi/2, np.pi, 3*np.pi/2]
+        cropped_renders = []
+        cropped_depths = []
+        cropped_masks = []
+
+        for phi in phi_angles:
+            #TODO make phi 0, 90, 180, 270
+            phi = phi - np.deg2rad(self.cfg.render.front_offset)
+            phi = float(phi + 2 * np.pi if phi < 0 else phi)
+            logger.info(f'Painting from theta: {theta}, phi: {phi}, radius: {radius}')
+
+            # Set background image
+            if self.cfg.guide.use_background_color:
+                background = torch.Tensor([0, 0.8, 0]).to(self.device)
+            else:
+                #background image를 grid size로 맞춤
+                #self.back_im.unsqueeze(0) : [1, 3, 1024, 1024]
+                background = F.interpolate(self.back_im.unsqueeze(0),
+                                        (self.cfg.render.train_grid_size, self.cfg.render.train_grid_size),
+                                        mode='bilinear', align_corners=False)
+
+            # Rendering Process
+            # 여기서 정면 시작, Rgb 이미지, depth를 뽑는다.
+            # outputs[Tensor] : image, mask, background, foreground, depth, normals, render_cache(uv_features, face_normals, face_idx, depth_map), texture_map
+            outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background)
+            render_cache = outputs['render_cache']
+            rgb_render_raw = outputs['image']  # Render where missing values have special color
+            depth_render = outputs['depth']
+            # Render again with the median value to use as rgb, we shouldn't have color leakage, but just in case
+            outputs = self.mesh_model.render(background=background,
+                                            render_cache=render_cache, use_median=self.paint_step > 1)
+            rgb_render = outputs['image']
+            # Render meta texture map
+            meta_output = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
+                                                use_meta_texture=True, render_cache=render_cache)
+
+            z_normals = outputs['normals'][:, -1:, :, :].clamp(0, 1)
+            z_normals_cache = meta_output['image'].clamp(0, 1)
+            edited_mask = meta_output['image'].clamp(0, 1)[:, 1:2]
+
+            self.log_train_image(rgb_render, 'rendered_input')
+            self.log_train_image(depth_render[0, 0], 'depth', colormap=True)
+            self.log_train_image(z_normals[0, 0], 'z_normals', colormap=True)
+            self.log_train_image(z_normals_cache[0, 0], 'z_normals_cache', colormap=True)
+
+            # text embeddings
+            if self.cfg.guide.append_direction:
+                dirs = data['dir']  # [B,]
+                text_z = self.text_z
+                text_z_origin = self.text_z_origin
+                text_string = self.text_string
+                text_string_origin = self.text_string_origin
+            else:
+                text_z = self.text_z
+                text_z_origin = self.text_z_origin
+                text_string = self.text_string
+                text_string_origin = self.text_string_origin
+            logger.info(f'text: {text_string_origin}')
+            
+            update_mask, generate_mask, refine_mask = self.calculate_trimap(rgb_render_raw=rgb_render_raw,
+                                                                            depth_render=depth_render,
+                                                                            z_normals=z_normals,
+                                                                            z_normals_cache=z_normals_cache,
+                                                                            edited_mask=edited_mask,
+                                                                            mask=outputs['mask'])
+
+            update_ratio = float(update_mask.sum() / (update_mask.shape[2] * update_mask.shape[3]))
+            if self.cfg.guide.reference_texture is not None and update_ratio < 0.01:
+                logger.info(f'Update ratio {update_ratio:.5f} is small for an editing step, skipping')
+                return
+
+            self.log_train_image(rgb_render * (1 - update_mask), name='masked_input')
+            self.log_train_image(rgb_render * refine_mask, name='refine_regions')
+
+            # Crop to inner region based on object mask
+            min_h, min_w, max_h, max_w = utils.get_nonzero_region(outputs['mask'][0, 0])
+            crop = lambda x: x[:, :, min_h:max_h, min_w:max_w]
+            cropped_rgb_render = crop(rgb_render)
+            cropped_depth_render = crop(depth_render)
+            cropped_update_mask = crop(update_mask)
+            #Add to list for concatenate
+            cropped_renders.append(cropped_rgb_render)
+            cropped_depths.append(cropped_depth_render)
+            cropped_masks.append(cropped_update_mask)
+
+            self.log_train_image(cropped_rgb_render, name='cropped_input')
+        # Find the minimum height and width among the cropped images
+        min_height = min([img.shape[2] for img in cropped_renders])
+        min_width = min([img.shape[3] for img in cropped_renders])
+
+        # Resize all cropped images to the minimum height and width
+        cropped_renders = [F.interpolate(img, size=(min_height, min_width), mode='bilinear', align_corners=False) for img in cropped_renders]
+        cropped_depths = [F.interpolate(img, size=(min_height, min_width), mode='bilinear', align_corners=False) for img in cropped_depths]
+        cropped_masks = [F.interpolate(img, size=(min_height, min_width), mode='bilinear', align_corners=False) for img in cropped_masks]
+
+        # Concatenate the cropped images into a 2x2 grid
+        cropped_rgb_render_2x2 = torch.cat([
+            torch.cat([cropped_renders[0], cropped_renders[1]], dim=3),
+            torch.cat([cropped_renders[2], cropped_renders[3]], dim=3)
+        ], dim=2)
+        cropped_depth_render_2x2 = torch.cat([
+            torch.cat([cropped_depths[0], cropped_depths[1]], dim=3),
+            torch.cat([cropped_depths[2], cropped_depths[3]], dim=3)
+        ], dim=2)
+        cropped_update_mask_2x2 = torch.cat([
+            torch.cat([cropped_masks[0], cropped_masks[1]], dim=3),
+            torch.cat([cropped_masks[2], cropped_masks[3]], dim=3)
+        ], dim=2)
+
+        # Resize the concatenated image to the required size for the diffusion process
+        cropped_rgb_render_2x2 = F.interpolate(cropped_rgb_render_2x2, (512, 512), mode='bilinear', align_corners=False)
+        cropped_depth_render_2x2 = F.interpolate(cropped_depth_render_2x2, (512, 512), mode='bilinear', align_corners=False)
+        cropped_update_mask_2x2 = F.interpolate(cropped_update_mask_2x2, (512, 512), mode='bilinear', align_corners=False)
+
+        checker_mask = None
+        if self.paint_step > 1 or self.cfg.guide.initial_texture is not None:
+            checker_mask = self.generate_checkerboard(cropped_update_mask_2x2, cropped_update_mask_2x2,
+                                                    cropped_update_mask_2x2)
+            self.log_train_image(F.interpolate(cropped_rgb_render_2x2, (512, 512)) * (1 - checker_mask),
+                                'checkerboard_input')
+        self.diffusion.use_inpaint = self.cfg.guide.use_inpainting and self.paint_step > 1
+
+        # Diffusion Process with 2x2 grid
+        cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z_origin, cropped_rgb_render_2x2.detach(),
+                                                                    cropped_depth_render_2x2.detach(),
+                                                                    guidance_scale=self.cfg.guide.guidance_scale,
+                                                                    strength=1.0, update_mask=cropped_update_mask_2x2,
+                                                                    fixed_seed=self.cfg.optim.seed,
+                                                                    check_mask=checker_mask,
+                                                                    intermediate_vis=self.cfg.log.vis_diffusion_steps)
+        self.log_train_image(cropped_rgb_render_2x2, name='cropped_rgb_render_2x2')
+        self.log_train_image(cropped_depth_render_2x2, name='cropped_depth_render_2x2')
+        self.log_train_image(cropped_update_mask_2x2, name='cropped_update_mask_2x2')
+        self.log_train_image(cropped_rgb_output, name='direct_output')
+        self.log_diffusion_steps(steps_vis)
+
+        # cropped_rgb_output Tensor을 (W,H) size로 resize
+        cropped_rgb_output = F.interpolate(cropped_rgb_output,
+                                        (cropped_rgb_render.shape[2], cropped_rgb_render.shape[3]),
+                                        mode='bilinear', align_corners=False)
+
+        # Extend rgb_output to full image size
+        rgb_output = rgb_render.clone()
+        rgb_output[:, :, min_h:max_h, min_w:max_w] = cropped_rgb_output
+        self.log_train_image(rgb_output, name='full_output')
+
+        # Project back
+        object_mask = outputs['mask']
+        fitted_pred_rgb, _ = self.project_back(render_cache=render_cache, background=background, rgb_output=rgb_output,
+                                            object_mask=object_mask, update_mask=update_mask, z_normals=z_normals,
+                                            z_normals_cache=z_normals_cache)
         self.log_train_image(fitted_pred_rgb, name='fitted')
 
         return
@@ -473,13 +659,15 @@ class TEXTure:
         return rgb_render, current_z_normals
 
     def log_train_image(self, tensor: torch.Tensor, name: str, colormap=False):
+        n=0
         if self.cfg.log.log_images:
             if colormap:
                 tensor = cm.seismic(tensor.detach().cpu().numpy())[:, :, :3]
             else:
                 tensor = einops.rearrange(tensor, '(1) c h w -> h w c').detach().cpu().numpy()
             Image.fromarray((tensor * 255).astype(np.uint8)).save(
-                self.train_renders_path / f'{self.paint_step:04d}_{name}.jpg')
+                self.train_renders_path / f'{self.paint_step:04d}_{n}_{name}.jpg')
+            n += 1
 
     def log_diffusion_steps(self, intermediate_vis: List[Image.Image]):
         if len(intermediate_vis) > 0:
