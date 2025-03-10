@@ -1,0 +1,16 @@
+log:
+  exp_name: rabbit_3
+guide:
+  text: "A rabbit with a metallic silver sheen."
+  diffusion_name: stabilityai/stable-diffusion-2-depth
+  # diffusion_name: diffusers/controlnet-depth-sdxl-1.0
+  shape_scale: 0.6
+  append_direction: True
+  shape_path: shapes/rabbit.obj
+  texture_resolution: 1024
+  guidance_scale: 10
+  texture_interpolation_mode: 'bilinear'
+optim:
+  seed: 2
+render:
+  front_offset: 0

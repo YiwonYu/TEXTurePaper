@@ -1,0 +1,16 @@
+log:
+  exp_name: ailen_1
+guide:
+  text: "A futuristic alien with a metallic silver texture that reflects light like a mirror."
+  diffusion_name: stabilityai/stable-diffusion-2-depth
+  # diffusion_name: diffusers/controlnet-depth-sdxl-1.0
+  shape_scale: 0.6
+  append_direction: True
+  shape_path: shapes/alien.obj
+  texture_resolution: 1024
+  guidance_scale: 10
+  texture_interpolation_mode: 'bilinear'
+optim:
+  seed: 2
+render:
+  front_offset: 0

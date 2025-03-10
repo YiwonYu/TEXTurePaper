@@ -1,0 +1,28 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Python Debugger: TexTure",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/mmai6k_01/TEXTurePaper/scripts/run_texture.py",
+            "console": "integratedTerminal",
+            "python": "/home/mmai6k_01/miniconda3/envs/texture/bin/python",
+            "args": [
+                "--config_path=configs/text_guided/porsche.yaml"
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CONDA_DEFAULT_ENV": "texture"
+            },
+            "justMyCode": true,
+
+        }
+    ]
+}
+
+// !python -m scripts.run_texture --config_path=configs/text_guided/nascar.yaml
