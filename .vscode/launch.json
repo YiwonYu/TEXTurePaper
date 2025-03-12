@@ -13,7 +13,7 @@
             "console": "integratedTerminal",
             "python": "/home/mmai6k_01/miniconda3/envs/texture/bin/python",
             "args": [
-                "--config_path=configs/text_guided/rabbit_1.yaml"
+                "--config_path=configs/text_guided/rabbit_2.yaml"
             ],
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",
