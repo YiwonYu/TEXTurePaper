@@ -1,8 +1,0 @@
-log:
-  exp_name: truck
-guide:
-  text: "A photo of truck, {} view"
-  append_direction: True
-  shape_path: shapes/Truck.obj
-optim:
-  seed: 3

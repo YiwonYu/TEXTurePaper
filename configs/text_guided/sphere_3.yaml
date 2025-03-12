@@ -1,7 +1,7 @@
 log:
   exp_name: sphere_3
 guide:
-  text: "A sphere with a rusty metallic surface and visible scratches."
+  text: "A sphere with a rusty metallic surface and visible scratches, {} view"
   diffusion_name: stabilityai/stable-diffusion-2-depth
   # diffusion_name: diffusers/controlnet-depth-sdxl-1.0
   shape_scale: 0.6

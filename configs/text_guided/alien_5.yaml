@@ -1,7 +1,7 @@
 log:
   exp_name: ailen_5
 guide:
-  text: "An alien with a rugged, volcanic rock texture and glowing cracks."
+  text: "An alien with a rugged, volcanic rock texture and glowing cracks, {} view"
   diffusion_name: stabilityai/stable-diffusion-2-depth
   # diffusion_name: diffusers/controlnet-depth-sdxl-1.0
   shape_scale: 0.6

@@ -1,7 +1,7 @@
 log:
   exp_name: ailen_1
 guide:
-  text: "A futuristic alien with a metallic silver texture that reflects light like a mirror."
+  text: "A futuristic alien with a metallic silver texture that reflects light like a mirror, {} view"
   diffusion_name: stabilityai/stable-diffusion-2-depth
   # diffusion_name: diffusers/controlnet-depth-sdxl-1.0
   shape_scale: 0.6
