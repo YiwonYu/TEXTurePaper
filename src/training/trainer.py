@@ -266,7 +266,7 @@ class TEXTure:
             text_string = self.text_string
             text_string_origin = self.text_string_origin
         logger.info(f'text: {text_string}')
-        #TODO we have to make 4 captured view to trimap
+        
         update_mask, generate_mask, refine_mask = self.calculate_trimap(rgb_render_raw=rgb_render_raw,
                                                                         depth_render=depth_render,
                                                                         z_normals=z_normals,
@@ -405,6 +405,7 @@ class TEXTure:
                                                                             z_normals_cache=z_normals_cache,
                                                                             edited_mask=edited_mask,
                                                                             mask=outputs['mask'])
+            self.save_vu_image(update_mask, 'update_mask')
 
             update_ratio = float(update_mask.sum() / (update_mask.shape[2] * update_mask.shape[3]))
             if self.cfg.guide.reference_texture is not None and update_ratio < 0.01:
@@ -787,7 +788,8 @@ class TEXTure:
             else:
                 tensor = einops.rearrange(tensor, '(1) c h w -> h w c').detach().cpu().numpy()
             Image.fromarray((tensor * 255).astype(np.uint8)).save(
-                self.train_renders_path / f'{self.ncount:04d}_{self.paint_step:02d}_{name}.jpg')
+                self.train_renders_path / f'{self.paint_step:04d}_{name}.jpg')
+            #self.train_renders_path / f'{self.ncount:04d}_{self.paint_step:02d}_{name}.jpg')
 
     def log_diffusion_steps(self, intermediate_vis: List[Image.Image]):
         if len(intermediate_vis) > 0:
