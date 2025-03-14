@@ -371,7 +371,7 @@ class TEXTure:
             outputs = self.mesh_model.render(background=background,
                                             render_cache=render_cache, use_median=self.paint_step > 1)
             rgb_render = outputs['image']
-            # Render meta texture map
+            # Render meta texture map - Kaolin 사용
             meta_output = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
                                                 use_meta_texture=True, render_cache=render_cache)
 
@@ -405,15 +405,14 @@ class TEXTure:
                                                                             z_normals_cache=z_normals_cache,
                                                                             edited_mask=edited_mask,
                                                                             mask=outputs['mask'])
-            self.save_vu_image(update_mask, 'update_mask')
 
             update_ratio = float(update_mask.sum() / (update_mask.shape[2] * update_mask.shape[3]))
             if self.cfg.guide.reference_texture is not None and update_ratio < 0.01:
                 logger.info(f'Update ratio {update_ratio:.5f} is small for an editing step, skipping')
                 return
 
-            # self.log_train_image(rgb_render * (1 - update_mask), name='masked_input')
-            # self.log_train_image(rgb_render * refine_mask, name='refine_regions')
+            self.log_train_image(rgb_render * (1 - update_mask), name='masked_input')
+            self.log_train_image(rgb_render * refine_mask, name='refine_regions')
             
             # Crop to inner region based on object mask
             min_h, min_w, max_h, max_w = utils.get_nonzero_region(outputs['mask'][0, 0])
@@ -440,7 +439,7 @@ class TEXTure:
             max_hs.append(max_h)
             max_ws.append(max_w)
 
-            # self.log_train_image(cropped_rgb_render, name='cropped_input')
+            self.log_train_image(cropped_rgb_render, name='cropped_input')
 
         # Find the minimum height and width among the cropped images
         min_height = min([img.shape[2] for img in cropped_renders])
@@ -470,9 +469,9 @@ class TEXTure:
         cropped_depth_render_2x2 = F.interpolate(cropped_depth_render_2x2, (512, 512), mode='bilinear', align_corners=False)
         cropped_update_mask_2x2 = F.interpolate(cropped_update_mask_2x2, (512, 512), mode='bilinear', align_corners=False)
 
-        self.save_vu_image(cropped_depth_render_2x2, 'cropped_depth_render_2x2')
-        self.save_vu_image(cropped_rgb_render_2x2, 'cropped_rgb_render_2x2')
-        self.save_vu_image(cropped_update_mask_2x2, 'cropped_update_mask_2x2')
+        # self.save_vu_image(cropped_depth_render_2x2, 'cropped_depth_render_2x2')
+        # self.save_vu_image(cropped_rgb_render_2x2, 'cropped_rgb_render_2x2')
+        # self.save_vu_image(cropped_update_mask_2x2, 'cropped_update_mask_2x2')
 
         checker_mask = None
         if self.paint_step > 1 or self.cfg.guide.initial_texture is not None:
@@ -582,17 +581,21 @@ class TEXTure:
 
         # Generate the refine mask based on the z normals, and the edited mask
 
+        #update mask 기반 refine_mask shape 일치하게
         refine_mask = torch.zeros_like(update_mask)
+        # z_normal 부분이 cache + thr 보다 큰 부분만 refine_mask에 1로 채움)(차이가 큰부분)
         refine_mask[z_normals > z_normals_cache[:, :1, :, :] + self.cfg.guide.z_update_thr] = 1
+        # initial texture이 없는 부분은 refine하지 않는다.
         if self.cfg.guide.initial_texture is None:
             refine_mask[z_normals_cache[:, :1, :, :] == 0] = 0
         elif self.cfg.guide.reference_texture is not None:
+            # edited_mask 부분만 refinement 되도록
             refine_mask[edited_mask == 0] = 0
             refine_mask = torch.from_numpy(
                 cv2.dilate(refine_mask[0, 0].detach().cpu().numpy(), np.ones((31, 31), np.uint8))).to(
                 mask.device).unsqueeze(0).unsqueeze(0)
             refine_mask[mask == 0] = 0
-            # Don't use bad angles here
+            # z_normal이 작은 부분(bad angle)은 refinement하지 않는다
             refine_mask[z_normals < 0.4] = 0
         else:
             # Update all regions inside the object
@@ -651,21 +654,27 @@ class TEXTure:
                      object_mask: torch.Tensor, update_mask: torch.Tensor, z_normals: torch.Tensor,
                      z_normals_cache: torch.Tensor):
         #cv2.erode : 침식연산 깎으면서, noise 제거, mask가 잘 fit하도록
+
         object_mask = torch.from_numpy(
             cv2.erode(object_mask[0, 0].detach().cpu().numpy(), np.ones((5, 5), np.uint8))).to(
             object_mask.device).unsqueeze(0).unsqueeze(0)
         #initialize render_update_mask with object mask
         render_update_mask = object_mask.clone()
+
         # update mask가 0인 부분을 render_update_mask에 0으로 채움
         render_update_mask[update_mask == 0] = 0
-        # smooth transition between the updated, non-updated regions
+
+        # smooth transition between the updated, non-updated regions -> slim했던 mask를 다시 확장(거의 기존 update mask와 비슷)
         blurred_render_update_mask = torch.from_numpy(
             cv2.dilate(render_update_mask[0, 0].detach().cpu().numpy(), np.ones((25, 25), np.uint8))).to(
             render_update_mask.device).unsqueeze(0).unsqueeze(0)
+
+        # 전체 Gaussian blur
         blurred_render_update_mask = utils.gaussian_blur(blurred_render_update_mask, 21, 16)
 
-        # Do not get out of the object(mask setting)
+        # Do not get out of the object(mask setting)-> 다시 슬림해짐, sibvsad 이거 왜하는거야
         blurred_render_update_mask[object_mask == 0] = 0
+
         #strict constraint
         if self.cfg.guide.strict_projection:
             blurred_render_update_mask[blurred_render_update_mask < 0.5] = 0
@@ -678,6 +687,8 @@ class TEXTure:
 
         # Update the normals (max value with two)
         z_normals_cache[:, 0, :, :] = torch.max(z_normals_cache[:, 0, :, :], z_normals[:, 0, :, :])
+        self.save_vu_image(z_normals_cache, 'z_normals_cache_updated')
+        self.save_vu_image(z_normals, 'z_normals')
         #Adam optimizer for updating model parameter
         optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99),
                                      eps=1e-15)
@@ -687,7 +698,10 @@ class TEXTure:
             outputs = self.mesh_model.render(background=background,
                                              render_cache=render_cache)
             rgb_render = outputs['image']
-
+            # self.save_vu_image(rgb_render, 'rgb_render')
+            # self.save_vu_image(rgb_output, 'rgb_output')
+            #rgb_output : 실제 나온 사진, rgb_render : 분홍색 부터 예측하는 사진
+            #rgb_render이 rgb_output에 비슷해짐
             mask = render_update_mask.flatten()
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
@@ -708,78 +722,6 @@ class TEXTure:
 
         return rgb_render, current_z_normals
 
-    def project_back_multiple(self, render_cache: Dict[str, Any], background: Any, rgb_outputs: List[torch.Tensor],
-                          object_masks: List[torch.Tensor], update_masks: List[torch.Tensor], z_normals: List[torch.Tensor],
-                          z_normals_caches: List[torch.Tensor]):
-        combined_rgb_output = torch.zeros_like(rgb_outputs[0])
-        combined_render_update_mask = torch.zeros_like(update_masks[0])
-        combined_z_normals_cache = torch.zeros_like(z_normals_caches[0])
-
-        for i in range(len(rgb_outputs)):
-            object_mask = torch.from_numpy(
-                cv2.erode(object_masks[i][0, 0].detach().cpu().numpy(), np.ones((5, 5), np.uint8))).to(
-                object_masks[i].device).unsqueeze(0).unsqueeze(0)
-            render_update_mask = object_mask.clone()
-
-            # Resize update_masks[i] to match the shape of render_update_mask
-            resized_update_mask = F.interpolate(update_masks[i], size=render_update_mask.shape[2:], mode='bilinear', align_corners=False)
-            if resized_update_mask.shape[1] != 1:
-                resized_update_mask = torch.mean(resized_update_mask, dim=1, keepdim=True)
-            render_update_mask[resized_update_mask == 0] = 0
-
-            blurred_render_update_mask = torch.from_numpy(
-                cv2.dilate(render_update_mask[0, 0].detach().cpu().numpy(), np.ones((25, 25), np.uint8))).to(
-                render_update_mask.device).unsqueeze(0).unsqueeze(0)
-            blurred_render_update_mask = utils.gaussian_blur(blurred_render_update_mask, 21, 16)
-
-            # Do not get out of the object
-            blurred_render_update_mask[object_mask == 0] = 0
-
-            if self.cfg.guide.strict_projection:
-                blurred_render_update_mask[blurred_render_update_mask < 0.5] = 0
-                # Do not use bad normals
-                z_was_better = z_normals[i] + self.cfg.guide.z_update_thr < z_normals_caches[i][:, :1, :, :]
-                blurred_render_update_mask[z_was_better] = 0
-
-            render_update_mask = blurred_render_update_mask
-            self.log_train_image(rgb_outputs[i] * render_update_mask, f'project_back_input_{i}')
-
-            # Update the combined masks and outputs
-            combined_rgb_output += rgb_outputs[i] * render_update_mask
-            combined_render_update_mask += render_update_mask
-            combined_z_normals_cache = torch.max(combined_z_normals_cache, z_normals_caches[i])
-
-        # Normalize the combined RGB output by the combined mask
-        combined_rgb_output /= torch.clamp(combined_render_update_mask, min=1e-8)
-
-        optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99),
-                                    eps=1e-15)
-        for _ in tqdm(range(200), desc='fitting mesh colors'):
-            optimizer.zero_grad()
-            outputs = self.mesh_model.render(background=background,
-                                            render_cache=render_cache)
-            rgb_render = outputs['image']
-
-            mask = combined_render_update_mask.flatten()
-            masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
-            masked_target = combined_rgb_output.reshape(1, combined_rgb_output.shape[1], -1)[:, :, mask > 0]
-            masked_mask = mask[mask > 0]
-            loss = ((masked_pred - masked_target.detach()).pow(2) * masked_mask).mean()
-
-            meta_outputs = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
-                                                use_meta_texture=True, render_cache=render_cache)
-            current_z_normals = meta_outputs['image']
-            current_z_mask = meta_outputs['mask'].flatten()
-            masked_current_z_normals = current_z_normals.reshape(1, current_z_normals.shape[1], -1)[:, :,
-                                    current_z_mask == 1][:, :1]
-            masked_last_z_normals = combined_z_normals_cache.reshape(1, combined_z_normals_cache.shape[1], -1)[:, :,
-                                    current_z_mask == 1][:, :1]
-            loss += (masked_current_z_normals - masked_last_z_normals.detach()).pow(2).mean()
-            loss.backward()
-            optimizer.step()
-
-        return rgb_render, current_z_normals
-
     def log_train_image(self, tensor: torch.Tensor, name: str, colormap=False):
         if self.cfg.log.log_images:
             self.ncount += 1
@@ -788,8 +730,8 @@ class TEXTure:
             else:
                 tensor = einops.rearrange(tensor, '(1) c h w -> h w c').detach().cpu().numpy()
             Image.fromarray((tensor * 255).astype(np.uint8)).save(
-                self.train_renders_path / f'{self.paint_step:04d}_{name}.jpg')
-            #self.train_renders_path / f'{self.ncount:04d}_{self.paint_step:02d}_{name}.jpg')
+                #self.train_renders_path / f'{self.paint_step:04d}_{name}.jpg')
+                self.train_renders_path / f'{self.ncount:04d}_{self.paint_step:02d}_{name}.jpg')
 
     def log_diffusion_steps(self, intermediate_vis: List[Image.Image]):
         if len(intermediate_vis) > 0:
