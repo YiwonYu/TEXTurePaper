@@ -126,6 +126,11 @@ class TexturedMeshModel(nn.Module):
         self.default_color = [0.8, 0.1, 0.8]
         self.background_sphere_colors, self.texture_img = self.init_paint()
         self.meta_texture_img = nn.Parameter(torch.zeros_like(self.texture_img))
+
+        self.background_sphere_colors_initial = self.background_sphere_colors.clone()
+        self.texture_img_initial = self.texture_img.clone()
+        self.meta_texture_img_initial = self.meta_texture_img.clone()
+    
         if self.opt.reference_texture:
             base_texture = torch.Tensor(np.array(Image.open(self.opt.reference_texture).resize(
                 (self.texture_resolution, self.texture_resolution)))).permute(2, 0, 1).cuda().unsqueeze(0) / 255.0
@@ -293,6 +298,11 @@ class TexturedMeshModel(nn.Module):
 
     def get_params(self):
         return [self.background_sphere_colors, self.texture_img, self.meta_texture_img]
+    
+    def initialize_params(self):
+        self.background_sphere_colors = nn.Parameter(self.background_sphere_colors_initial.clone())
+        self.texture_img = nn.Parameter(self.texture_img_initial.clone())
+        self.meta_texture_img = nn.Parameter(self.meta_texture_img_initial.clone())
 
     @torch.no_grad()
     def export_mesh(self, path):
@@ -352,6 +362,7 @@ class TexturedMeshModel(nn.Module):
             fp.write(f'Ns 0.000000 \n')
             fp.write(f'map_Kd {name}albedo.png \n')
 
+    # 여기서 자동으로 previous UV Map을 반영하는데 어디일까
     def render(self, theta=None, phi=None, radius=None, background=None,
                use_meta_texture=False, render_cache=None, use_median=False, dims=None):
         if render_cache is None:
@@ -383,16 +394,16 @@ class TexturedMeshModel(nn.Module):
             background_type = background
             use_render_back = True
         pred_features, mask, depth, normals, render_cache = self.renderer.render_single_view_texture(augmented_vertices,
-                                                                                                     self.mesh.faces,
-                                                                                                     self.face_attributes,
-                                                                                                     texture_img,
-                                                                                                     elev=theta,
-                                                                                                     azim=phi,
-                                                                                                     radius=radius,
-                                                                                                     look_at_height=self.dy,
-                                                                                                     render_cache=render_cache,
-                                                                                                     dims=dims,
-                                                                                                     background_type=background_type)
+            self.mesh.faces,
+            self.face_attributes,
+            texture_img,
+            elev=theta,
+            azim=phi,
+            radius=radius,
+            look_at_height=self.dy,
+            render_cache=render_cache,
+            dims=dims,
+            background_type=background_type)
 
         mask = mask.detach()
 
@@ -402,12 +413,12 @@ class TexturedMeshModel(nn.Module):
         else:
             if background is None:
                 pred_back, _, _ = self.renderer.render_single_view(self.env_sphere,
-                                                                   background_sphere_colors,
-                                                                   elev=theta,
-                                                                   azim=phi,
-                                                                   radius=radius,
-                                                                   dims=dims,
-                                                                   look_at_height=self.dy, calc_depth=False)
+                background_sphere_colors,
+                elev=theta,
+                azim=phi,
+                radius=radius,
+                dims=dims,
+                look_at_height=self.dy, calc_depth=False)
             elif len(background.shape) == 1:
                 pred_back = torch.ones_like(pred_features) * background.reshape(1, 3, 1, 1)
             else:

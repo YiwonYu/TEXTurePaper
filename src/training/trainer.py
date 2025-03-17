@@ -30,6 +30,8 @@ class TEXTure:
         self.paint_step = 0
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.ncount = 0
+        self.texturecount = 0
+        self.image_count = 0  # Counter for valid images
 
         utils.seed_everything(self.cfg.optim.seed)
 
@@ -323,7 +325,7 @@ class TEXTure:
         object_mask = outputs['mask']
         fitted_pred_rgb, _ = self.project_back(render_cache=render_cache, background=background, rgb_output=rgb_output,
                                                object_mask=object_mask, update_mask=update_mask, z_normals=z_normals,
-                                               z_normals_cache=z_normals_cache)
+                                               z_normals_cache=z_normals_cache, initial=False)
         self.log_train_image(fitted_pred_rgb, name='fitted')
 
         return
@@ -331,7 +333,8 @@ class TEXTure:
     def paint_viewpoint_initial(self, data: Dict[str, Any]):
         logger.info(f'--- Painting step #{self.paint_step} ---')
         theta, phi, radius = data['theta'], data['phi'], data['radius']
-        phi_angles = [0, np.pi/2, np.pi, 3*np.pi/2]
+        # phi_angles = [np.pi, np.pi/2, 3*np.pi/2, 0]
+        phi_angles = [0, np.pi/2, 3*np.pi/2, np.pi]
         cropped_renders = []
         cropped_depths = []
         cropped_masks = []
@@ -522,9 +525,14 @@ class TEXTure:
                 object_mask=object_masks[i], 
                 update_mask=update_masks[i], 
                 z_normals=z_normals_list[i],
-                z_normals_cache=z_normals_caches[i])
+                z_normals_cache=z_normals_caches[i],
+                initial=True)
             
             self.save_vu_image(fitted_pred_rgb, f'fitted_{i}_rgb')
+
+            #save initial uv map texture
+            # self.uv_map_cache.init_dataloaders
+            self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'collapsed')
         return
 
     def eval_render(self, data):
@@ -543,7 +551,7 @@ class TEXTure:
         uncolored_mask = (diff < 0.1).float().unsqueeze(0)
         rgb_render = rgb_render * (1 - uncolored_mask) + utils.color_with_shade([0.85, 0.85, 0.85], z_normals=z_normals,
                                                                                 light_coef=0.3) * uncolored_mask
-
+        # TODO: 아니 이거 자체가 텍스쳐 업데이트해서 내보냄 why?, render_cache 안넣어도 이거나옴
         outputs_with_median = self.mesh_model.render(theta=theta, phi=phi, radius=radius,
                                                      dims=(dim, dim), use_median=True,
                                                      render_cache=outputs['render_cache'])
@@ -652,9 +660,9 @@ class TEXTure:
     # 마지막 Mesh Projection
     def project_back(self, render_cache: Dict[str, Any], background: Any, rgb_output: torch.Tensor,
                      object_mask: torch.Tensor, update_mask: torch.Tensor, z_normals: torch.Tensor,
-                     z_normals_cache: torch.Tensor):
+                     z_normals_cache: torch.Tensor,
+                     initial: False):
         #cv2.erode : 침식연산 깎으면서, noise 제거, mask가 잘 fit하도록
-
         object_mask = torch.from_numpy(
             cv2.erode(object_mask[0, 0].detach().cpu().numpy(), np.ones((5, 5), np.uint8))).to(
             object_mask.device).unsqueeze(0).unsqueeze(0)
@@ -690,16 +698,20 @@ class TEXTure:
         self.save_vu_image(z_normals_cache, 'z_normals_cache_updated')
         self.save_vu_image(z_normals, 'z_normals')
         #Adam optimizer for updating model parameter
-        optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99),
-                                     eps=1e-15)
+        optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
+        #TODO: get_params() 에서 self.texture_img 가져온다.
+        #여기서 계속 업데이트 되는게 문제였구만
+        # initilize uv texture of mesh model
+        if initial == True:
+            self.mesh_model.initialize_params()
+            
         #Optimize Mesh Colors 200 iteration
         for _ in tqdm(range(200), desc='fitting mesh colors'):
+            
             optimizer.zero_grad()
             outputs = self.mesh_model.render(background=background,
                                              render_cache=render_cache)
             rgb_render = outputs['image']
-            # self.save_vu_image(rgb_render, 'rgb_render')
-            # self.save_vu_image(rgb_output, 'rgb_output')
             #rgb_output : 실제 나온 사진, rgb_render : 분홍색 부터 예측하는 사진
             #rgb_render이 rgb_output에 비슷해짐
             mask = render_update_mask.flatten()
@@ -751,4 +763,16 @@ class TEXTure:
         self.ncount += 1
         # Save the image with the new naming format
         vutils.save_image(tensor, self.train_renders_path / f'{self.ncount:04d}_{self.paint_step:02d}_{name}.png')
+
+    def save_uv_map(self, dataloader: DataLoader, save_path: Path, name: str = 'collapsed'):
+        self.texturecount += 1
+        logger.info(f'Saving UV maps to {save_path}')
+        _, textures, _, _ = self.eval_render(next(iter(dataloader)))
+        texture = tensor2numpy(textures[0])
+        if name == 'collapsed':
+            Image.fromarray(texture).save(save_path / f"step_{self.paint_step:02d}_{self.texturecount:03d}_collapsed_texture.png")
+        elif name == 'initial':
+            Image.fromarray(texture).save(save_path / f"step_{self.paint_step:02d}_{self.texturecount:03d}_initial_texture.png")
+        else :
+            Image.fromarray(texture).save(save_path / f"step_{self.paint_step:02d}_{self.texturecount:03d}_{name}_texture.png")
 
