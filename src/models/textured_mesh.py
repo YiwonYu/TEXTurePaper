@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
 from PIL import Image
+import cv2
 
 from .mesh import Mesh
 from .render import Renderer
@@ -93,6 +94,39 @@ def choose_multi_modal(n: int, k: int):
         chosen_numbers.append(np.random.choice(current_interval_length) + i * interval_length)
     return chosen_numbers
 
+def save_tensor_as_image(tensor, filename, output_dir="output_images"):
+    """
+    Saves a PyTorch tensor as an image.
+
+    Args:
+        tensor (torch.Tensor or torch.nn.Parameter): Input tensor of shape (1, 3, H, W).
+        filename (str): Name of the file to save (e.g., "step1_original.png").
+        output_dir (str): Directory where images will be saved.
+
+    Returns:
+        None (Saves image to disk)
+    """
+    os.makedirs(output_dir, exist_ok=True)  # Ensure the directory exists
+
+    # Convert to tensor if it's a Parameter
+    if isinstance(tensor, torch.nn.Parameter):
+        tensor = tensor.data  # Access raw tensor
+
+    # Ensure it's a tensor before calling `.detach()`
+    if isinstance(tensor, torch.Tensor):
+        image_np = tensor.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
+    else:
+        raise TypeError("Expected a PyTorch tensor but got a different type.")
+
+    # Normalize if needed (ensure values are in 0-255 range)
+    image_np = np.clip(image_np * 255, 0, 255).astype(np.uint8)
+
+    # Save image using OpenCV
+    output_path = os.path.join(output_dir, filename)
+    cv2.imwrite(output_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
+
+    print(f"Saved: {output_path}")  # Debug message
+
 
 class TexturedMeshModel(nn.Module):
     def __init__(self,
@@ -130,7 +164,10 @@ class TexturedMeshModel(nn.Module):
         self.background_sphere_colors_initial = self.background_sphere_colors.clone()
         self.texture_img_initial = self.texture_img.clone()
         self.meta_texture_img_initial = self.meta_texture_img.clone()
-    
+
+        self.saved_texture_img = []
+        self.saved_meta_texture_img = []
+
         if self.opt.reference_texture:
             base_texture = torch.Tensor(np.array(Image.open(self.opt.reference_texture).resize(
                 (self.texture_resolution, self.texture_resolution)))).permute(2, 0, 1).cuda().unsqueeze(0) / 255.0
@@ -300,9 +337,81 @@ class TexturedMeshModel(nn.Module):
         return [self.background_sphere_colors, self.texture_img, self.meta_texture_img]
     
     def initialize_params(self):
+
+        self.saved_texture_img.append(nn.Parameter(self.texture_img.clone()))
+        self.saved_meta_texture_img.append(nn.Parameter(self.meta_texture_img.clone()))
         self.background_sphere_colors = nn.Parameter(self.background_sphere_colors_initial.clone())
+
         self.texture_img = nn.Parameter(self.texture_img_initial.clone())
         self.meta_texture_img = nn.Parameter(self.meta_texture_img_initial.clone())
+
+    def apply_bilateralFilter(self, d=9, sigma_color=75, sigma_space=75):
+        """
+        Applies Gaussian Blur to self.texture_img and self.meta_texture_img.
+
+        Args:
+            kernel_size (int): Size of the Gaussian kernel (must be odd, e.g., 3, 5, 7).
+            sigma_x (float): Standard deviation in the X direction; 0 lets OpenCV calculate it automatically.
+
+        Returns:
+            None (Modifies self.texture_img and self.meta_texture_img in place)
+        """
+        # Convert tensors to NumPy (H, W, C) format
+        image_np = self.texture_img.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
+        meta_image_np = self.meta_texture_img.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
+
+        # Apply bilateral filtering to each channel separately
+        filtered_channels = [cv2.bilateralFilter(image_np[:, :, i], d, sigma_color, sigma_space) for i in range(3)]
+        meta_filtered_channels = [cv2.bilateralFilter(meta_image_np[:, :, i], d, sigma_color, sigma_space) for i in range(3)]
+
+        # Stack filtered channels and convert back to tensors
+        filtered_np = np.stack(filtered_channels, axis=-1)
+        meta_filtered_np = np.stack(meta_filtered_channels, axis=-1)
+
+        # Convert to torch tensor while preserving dtype and device
+        filtered_tensor = torch.tensor(filtered_np, dtype=self.texture_img.dtype, device=self.texture_img.device).permute(2, 0, 1).unsqueeze(0)
+        meta_filtered_tensor = torch.tensor(meta_filtered_np, dtype=self.meta_texture_img.dtype, device=self.meta_texture_img.device).permute(2, 0, 1).unsqueeze(0)
+
+        # Ensure it's assigned as a model parameter if needed
+        self.texture_img = torch.nn.Parameter(filtered_tensor, requires_grad=True) if isinstance(self.texture_img, torch.nn.Parameter) else filtered_tensor
+        self.meta_texture_img = torch.nn.Parameter(meta_filtered_tensor, requires_grad=True) if isinstance(self.meta_texture_img, torch.nn.Parameter) else meta_filtered_tensor
+
+    def apply_gaussianBlur(self, kernel_size=3, sigma_x=0.5):
+        """
+        Applies Gaussian Blur to self.texture_img and self.meta_texture_img.
+
+        Args:
+            kernel_size (int): Size of the Gaussian kernel (must be odd, e.g., 3, 5, 7).
+            sigma_x (float): Standard deviation in the X direction; 0 lets OpenCV calculate it automatically.
+
+        Returns:
+            None (Modifies self.texture_img and self.meta_texture_img in place)
+        """
+        assert kernel_size % 2 == 1, "Kernel size must be an odd number (e.g., 3, 5, 7)."
+
+        # Convert tensors to NumPy (H, W, C) format
+        image_np = self.texture_img.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
+        meta_image_np = self.meta_texture_img.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
+
+        # Apply Gaussian Blur to each channel separately
+        blurred_channels = [cv2.GaussianBlur(image_np[:, :, i], (kernel_size, kernel_size), sigma_x) for i in range(3)]
+        meta_blurred_channels = [cv2.GaussianBlur(meta_image_np[:, :, i], (kernel_size, kernel_size), sigma_x) for i in range(3)]
+
+        # Stack channels back together
+        blurred_np = np.stack(blurred_channels, axis=-1)
+        meta_blurred_np = np.stack(meta_blurred_channels, axis=-1)
+
+        # Convert back to torch tensor while preserving dtype and device
+        blurred_tensor = torch.tensor(blurred_np, dtype=self.texture_img.dtype, device=self.texture_img.device).permute(2, 0, 1).unsqueeze(0)
+        meta_blurred_tensor = torch.tensor(meta_blurred_np, dtype=self.meta_texture_img.dtype, device=self.meta_texture_img.device).permute(2, 0, 1).unsqueeze(0)
+
+        # Ensure the result is assigned properly (handles both Parameter and Tensor cases)
+        self.texture_img = torch.nn.Parameter(blurred_tensor, requires_grad=True) if isinstance(self.texture_img, torch.nn.Parameter) else blurred_tensor
+        self.meta_texture_img = torch.nn.Parameter(meta_blurred_tensor, requires_grad=True) if isinstance(self.meta_texture_img, torch.nn.Parameter) else meta_blurred_tensor
+
+        save_tensor_as_image(self.texture_img, "blurred_texture.png")
+        save_tensor_as_image(self.meta_texture_img, "blurred_meta_texture.png")
+
 
     @torch.no_grad()
     def export_mesh(self, path):

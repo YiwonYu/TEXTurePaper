@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any, Dict, Union, List
 
+import os
 import cv2
 import einops
 import imageio
@@ -32,6 +33,7 @@ class TEXTure:
         self.ncount = 0
         self.texturecount = 0
         self.image_count = 0  # Counter for valid images
+        self.initialized_count = 0
 
         utils.seed_everything(self.cfg.optim.seed)
 
@@ -363,7 +365,7 @@ class TEXTure:
                 background = F.interpolate(self.back_im.unsqueeze(0),
                                         (self.cfg.render.train_grid_size, self.cfg.render.train_grid_size),
                                         mode='bilinear', align_corners=False)
-
+            self.save_vu_image(background, 'background')
             # Rendering Process : Kaolin을 이용해 depthMap, Rendered image를 얻음
             # outputs[Tensor] : image, mask, background, foreground, depth, normals, render_cache(uv_features, face_normals, face_idx, depth_map), texture_map
             outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background)
@@ -403,11 +405,11 @@ class TEXTure:
             
             #Making Trimap_original
             update_mask, generate_mask, refine_mask = self.calculate_trimap(rgb_render_raw=rgb_render_raw,
-                                                                            depth_render=depth_render,
-                                                                            z_normals=z_normals,
-                                                                            z_normals_cache=z_normals_cache,
-                                                                            edited_mask=edited_mask,
-                                                                            mask=outputs['mask'])
+                depth_render=depth_render,
+                z_normals=z_normals,
+                z_normals_cache=z_normals_cache,
+                edited_mask=edited_mask,
+                mask=outputs['mask'])
 
             update_ratio = float(update_mask.sum() / (update_mask.shape[2] * update_mask.shape[3]))
             if self.cfg.guide.reference_texture is not None and update_ratio < 0.01:
@@ -553,12 +555,12 @@ class TEXTure:
                                                                                 light_coef=0.3) * uncolored_mask
         # TODO: 아니 이거 자체가 텍스쳐 업데이트해서 내보냄 why?, render_cache 안넣어도 이거나옴
         outputs_with_median = self.mesh_model.render(theta=theta, phi=phi, radius=radius,
-                                                     dims=(dim, dim), use_median=True,
-                                                     render_cache=outputs['render_cache'])
+            dims=(dim, dim), use_median=True,
+            render_cache=outputs['render_cache'])
 
         meta_output = self.mesh_model.render(theta=theta, phi=phi, radius=radius,
-                                             background=torch.Tensor([0, 0, 0]).to(self.device),
-                                             use_meta_texture=True, render_cache=outputs['render_cache'])
+            background=torch.Tensor([0, 0, 0]).to(self.device),
+            use_meta_texture=True, render_cache=outputs['render_cache'])
         pred_z_normals = meta_output['image'][:, :1].detach()
         rgb_render = rgb_render.permute(0, 2, 3, 1).contiguous().clamp(0, 1).detach()
         texture_rgb = outputs_with_median['texture_map'].permute(0, 2, 3, 1).contiguous().clamp(0, 1).detach()
@@ -567,9 +569,9 @@ class TEXTure:
         return rgb_render, texture_rgb, depth_render, pred_z_normals
 
     def calculate_trimap(self, rgb_render_raw: torch.Tensor,
-                         depth_render: torch.Tensor,
-                         z_normals: torch.Tensor, z_normals_cache: torch.Tensor, edited_mask: torch.Tensor,
-                         mask: torch.Tensor):
+        depth_render: torch.Tensor,
+        z_normals: torch.Tensor, z_normals_cache: torch.Tensor, edited_mask: torch.Tensor,
+        mask: torch.Tensor):
         diff = (rgb_render_raw.detach() - torch.tensor(self.mesh_model.default_color).view(1, 3, 1, 1).to(
             self.device)).abs().sum(axis=1)
         exact_generate_mask = (diff < 0.1).float().unsqueeze(0)
@@ -659,9 +661,9 @@ class TEXTure:
 
     # 마지막 Mesh Projection
     def project_back(self, render_cache: Dict[str, Any], background: Any, rgb_output: torch.Tensor,
-                     object_mask: torch.Tensor, update_mask: torch.Tensor, z_normals: torch.Tensor,
-                     z_normals_cache: torch.Tensor,
-                     initial: False):
+        object_mask: torch.Tensor, update_mask: torch.Tensor, z_normals: torch.Tensor,
+        z_normals_cache: torch.Tensor,
+        initial: False):
         #cv2.erode : 침식연산 깎으면서, noise 제거, mask가 잘 fit하도록
         object_mask = torch.from_numpy(
             cv2.erode(object_mask[0, 0].detach().cpu().numpy(), np.ones((5, 5), np.uint8))).to(
@@ -701,17 +703,15 @@ class TEXTure:
         optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
         #TODO: get_params() 에서 self.texture_img 가져온다.
         #여기서 계속 업데이트 되는게 문제였구만
-        # initilize uv texture of mesh model
-        if initial == True:
-            self.mesh_model.initialize_params()
-            
+        
         #Optimize Mesh Colors 200 iteration
-        for _ in tqdm(range(200), desc='fitting mesh colors'):
+        for i in tqdm(range(200), desc='fitting mesh colors'):
             
             optimizer.zero_grad()
             outputs = self.mesh_model.render(background=background,
                                              render_cache=render_cache)
             rgb_render = outputs['image']
+
             #rgb_output : 실제 나온 사진, rgb_render : 분홍색 부터 예측하는 사진
             #rgb_render이 rgb_output에 비슷해짐
             mask = render_update_mask.flatten()
@@ -731,6 +731,19 @@ class TEXTure:
             loss += (masked_current_z_normals - masked_last_z_normals.detach()).pow(2).mean()
             loss.backward()
             optimizer.step()
+        
+        #TODO: self.dataloaders['val'] are getting updated here
+        self.save_vu_image(rgb_render, 'fitted_rgb')
+        self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'initial')
+
+        #optimizer로 업데이트 -> uv_map 저장 -> param 초기화
+        if initial == True:
+            self.mesh_model.initialize_params()
+
+        if initial == True:
+            # self.mesh_model.apply_bilateralFilter()
+            # self.mesh_model.apply_gaussianBlur()
+            pass
 
         return rgb_render, current_z_normals
 
@@ -753,11 +766,24 @@ class TEXTure:
                 intermedia_res.save(
                     step_folder / f'{k:02d}_diffusion_step.jpg')
 
-    def save_image(self, tensor: torch.Tensor, path: Path):
-        if self.cfg.log.log_images:
-            Image.fromarray(
-                (einops.rearrange(tensor, '(1) c h w -> h w c').detach().cpu().numpy() * 255).astype(np.uint8)).save(
-                path)
+    def save_image(self, tensor: torch.Tensor, path: Path, name: str='output.png'):
+        # Convert to tensor if it's a Parameter
+        if isinstance(tensor, torch.nn.Parameter):
+            tensor = tensor.data  # Access raw tensor
+        # Ensure it's a tensor before calling `.detach()`
+        if isinstance(tensor, torch.Tensor):
+            image_np = tensor.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
+        else:
+            raise TypeError("Expected a PyTorch tensor but got a different type.")
+
+        # Normalize if needed (ensure values are in 0-255 range)
+        image_np = np.clip(image_np * 255, 0, 255).astype(np.uint8)
+
+        # Save image using OpenCV
+        output_path = os.path.join(path, name)
+        cv2.imwrite(output_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
+
+        print(f"Saved: {output_path}")  # Debug message
     
     def save_vu_image(self, tensor: torch.Tensor, name: str):
         self.ncount += 1
