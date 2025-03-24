@@ -15,6 +15,8 @@ from matplotlib import cm
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from scipy.sparse import lil_matrix
+from scipy.sparse.linalg import spsolve
 
 from src import utils
 from src.configs.train_config import TrainConfig
@@ -34,6 +36,7 @@ class TEXTure:
         self.texturecount = 0
         self.image_count = 0  # Counter for valid images
         self.initialized_count = 0
+        self.initial_uvmap = []
 
         utils.seed_everything(self.cfg.optim.seed)
 
@@ -144,7 +147,7 @@ class TEXTure:
             if self.paint_step == 0:
                 self.paint_step += 1
                 pbar.update(1)
-                self.paint_viewpoint_initial(data)
+                self.paint_viewpoint_initial(data, UV_MAP=False, initial=False)
                 self.evaluate(self.dataloaders['val'], self.eval_renders_path)
                 self.mesh_model.train()
 
@@ -332,7 +335,7 @@ class TEXTure:
 
         return
 
-    def paint_viewpoint_initial(self, data: Dict[str, Any]):
+    def paint_viewpoint_initial(self, data: Dict[str, Any], UV_MAP=False, initial=False):
         logger.info(f'--- Painting step #{self.paint_step} ---')
         theta, phi, radius = data['theta'], data['phi'], data['radius']
         # phi_angles = [np.pi, np.pi/2, 3*np.pi/2, 0]
@@ -513,10 +516,38 @@ class TEXTure:
         resized_bottom_left = F.interpolate(bottom_left, size=(cropped_renders[2].shape[2], cropped_renders[2].shape[3]), mode='bilinear', align_corners=False)
         resized_bottom_right = F.interpolate(bottom_right, size=(cropped_renders[3].shape[2], cropped_renders[3].shape[3]), mode='bilinear', align_corners=False)
 
+        resized_images = [resized_top_left, resized_top_right, resized_bottom_left, resized_bottom_right]
+
+        if UV_MAP:
+            image_path = "UVmap_Checker.png"  # Replace with your image file path
+            image = Image.open(image_path).convert("RGB")  # Ensure it's RGB
+            image_resized = image.resize((1024, 1024), Image.LANCZOS)  # High-quality resizing
+
+            # Convert the resized image to a tensor
+            img_array = np.array(image_resized, dtype=np.float32) / 255.0  # Normalize to [0, 1]
+            img_array = np.transpose(img_array, (2, 0, 1))  # Shape: [3, 1024, 1024]
+            cropped_rgb_output = torch.tensor(img_array).unsqueeze(0)  # Shape: [1, 3, 1024, 1024]
+
+            # Split the 2x2 grid into four separate images (512x512 each)
+            split_images = torch.split(cropped_rgb_output, 512, dim=2)  # Split along height: [1, 3, 512, 1024] x 2
+            top_left = torch.split(split_images[0], 512, dim=3)[0]      # [1, 3, 512, 512]
+            top_right = torch.split(split_images[0], 512, dim=3)[1]     # [1, 3, 512, 512]
+            bottom_left = torch.split(split_images[1], 512, dim=3)[0]   # [1, 3, 512, 512]
+            bottom_right = torch.split(split_images[1], 512, dim=3)[1]  # [1, 3, 512, 512]
+
+            # Resize each image to match the size of the corresponding cropped render
+            resized_top_left = F.interpolate(top_left, size=(cropped_renders[0].shape[2], cropped_renders[0].shape[3]), mode='bilinear', align_corners=False)
+            resized_top_right = F.interpolate(top_right, size=(cropped_renders[1].shape[2], cropped_renders[1].shape[3]), mode='bilinear', align_corners=False)
+            resized_bottom_left = F.interpolate(bottom_left, size=(cropped_renders[2].shape[2], cropped_renders[2].shape[3]), mode='bilinear', align_corners=False)
+            resized_bottom_right = F.interpolate(bottom_right, size=(cropped_renders[3].shape[2], cropped_renders[3].shape[3]), mode='bilinear', align_corners=False)
+
+            # Combine resized tensors into a list
+            resized_images = [resized_top_left, resized_top_right, resized_bottom_left, resized_bottom_right]
+
         # Project back
         # 만들어진 이미지 I_0를 texture atlas T_0 에 project 시켜 보이는 부분을 색칠한다.
         # Extend rgb_output to full image size
-        for i, cropped_rgb_out in enumerate([resized_top_left, resized_top_right, resized_bottom_left, resized_bottom_right]):
+        for i, cropped_rgb_out in enumerate(resized_images):
             rgb_output = rgb_renders[i].clone()
             rgb_output[:, :, min_hs[i]:max_hs[i], min_ws[i]:max_ws[i]] = cropped_rgb_out
 
@@ -528,13 +559,13 @@ class TEXTure:
                 update_mask=update_masks[i], 
                 z_normals=z_normals_list[i],
                 z_normals_cache=z_normals_caches[i],
-                initial=True)
+                initial=initial)
             
-            self.save_vu_image(fitted_pred_rgb, f'fitted_{i}_rgb')
+            self.save_vu_image(fitted_pred_rgb, f'project_back_output_{i}_rgb')
 
             #save initial uv map texture
             # self.uv_map_cache.init_dataloaders
-            self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'collapsed')
+            self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'project_back_output_UV')
         return
 
     def eval_render(self, data):
@@ -553,7 +584,6 @@ class TEXTure:
         uncolored_mask = (diff < 0.1).float().unsqueeze(0)
         rgb_render = rgb_render * (1 - uncolored_mask) + utils.color_with_shade([0.85, 0.85, 0.85], z_normals=z_normals,
                                                                                 light_coef=0.3) * uncolored_mask
-        # TODO: 아니 이거 자체가 텍스쳐 업데이트해서 내보냄 why?, render_cache 안넣어도 이거나옴
         outputs_with_median = self.mesh_model.render(theta=theta, phi=phi, radius=radius,
             dims=(dim, dim), use_median=True,
             render_cache=outputs['render_cache'])
@@ -697,8 +727,8 @@ class TEXTure:
 
         # Update the normals (max value with two)
         z_normals_cache[:, 0, :, :] = torch.max(z_normals_cache[:, 0, :, :], z_normals[:, 0, :, :])
-        self.save_vu_image(z_normals_cache, 'z_normals_cache_updated')
-        self.save_vu_image(z_normals, 'z_normals')
+        self.save_vu_image(z_normals_cache, 'z_normals_cache_updated(project_back_input)')
+        self.save_vu_image(z_normals, 'z_normals(project_back_input')
         #Adam optimizer for updating model parameter
         optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
         #TODO: get_params() 에서 self.texture_img 가져온다.
@@ -733,13 +763,18 @@ class TEXTure:
             optimizer.step()
         
         #TODO: self.dataloaders['val'] are getting updated here
-        self.save_vu_image(rgb_render, 'fitted_rgb')
-        self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'initial')
+        self.save_vu_image(rgb_render, 'rgb_render(project_back_output)')
+        self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'UV_map(project_back_output)')
 
         #optimizer로 업데이트 -> uv_map 저장 -> param 초기화
         if initial == True:
             self.mesh_model.initialize_params()
-
+            self.initial_uvmap.append(self.mesh_model.texture_img.detach().clone())
+        # if method_1 == True:
+        #     '''
+        #     Method 1 : using 4 view UV map 
+        #     '''
+        #     pass
         if initial == True:
             # self.mesh_model.apply_bilateralFilter()
             # self.mesh_model.apply_gaussianBlur()
