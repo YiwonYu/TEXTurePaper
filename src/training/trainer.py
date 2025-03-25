@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
+import scipy.fftpack as fftpack
 
 from src import utils
 from src.configs.train_config import TrainConfig
@@ -147,7 +148,7 @@ class TEXTure:
             if self.paint_step == 0:
                 self.paint_step += 1
                 pbar.update(1)
-                self.paint_viewpoint_initial(data, UV_MAP=False, initial=False)
+                self.paint_viewpoint_initial(data, UV_MAP=False, initial=True)
                 self.evaluate(self.dataloaders['val'], self.eval_renders_path)
                 self.mesh_model.train()
 
@@ -748,8 +749,10 @@ class TEXTure:
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
             masked_mask = mask[mask > 0]
+            #TODO: z-normal 기준 threshold 추가 - 80도 이상이면 0으로 만들기
             loss = ((masked_pred - masked_target.detach()).pow(2) * masked_mask).mean()
 
+            # meta_outputs 빼고 실험
             meta_outputs = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
                                                   use_meta_texture=True, render_cache=render_cache)
             current_z_normals = meta_outputs['image']
@@ -768,13 +771,13 @@ class TEXTure:
 
         #optimizer로 업데이트 -> uv_map 저장 -> param 초기화
         if initial == True:
+            self.initial_uvmap.append(self.mesh_model.texture_img.detach().cpu())
             self.mesh_model.initialize_params()
-            self.initial_uvmap.append(self.mesh_model.texture_img.detach().clone())
-        # if method_1 == True:
-        #     '''
-        #     Method 1 : using 4 view UV map 
-        #     '''
-        #     pass
+
+            if len(self.initial_uvmap) == 4:
+                initial = False
+            
+             
         if initial == True:
             # self.mesh_model.apply_bilateralFilter()
             # self.mesh_model.apply_gaussianBlur()
