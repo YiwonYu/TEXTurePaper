@@ -416,7 +416,7 @@ class TexturedMeshModel(nn.Module):
     @torch.no_grad()
     def export_mesh(self, path):
         v, f = self.mesh.vertices, self.mesh.faces.int()
-        h0, w0 = 256, 256
+        h0, w0 = 512, 512
         ssaa, name = 1, ''
 
         # v, f: torch Tensor

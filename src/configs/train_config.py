@@ -66,11 +66,14 @@ class GuideConfig:
     # Whether to use background color or image
     use_background_color: bool = False
     # Background image to use
-    background_img: str = 'textures/brick_wall.png'
+    # background_img: str = 'textures/brick_wall.png'
+    background_img: str = 'textures/white.png'
     # Threshold for defining refine regions
     z_update_thr: float = 0.2
     # Some more strict masking for projecting back
     strict_projection: bool = True
+    # diffusion model
+    base_train: bool = False
 
 
 @dataclass
