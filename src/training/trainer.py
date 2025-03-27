@@ -35,6 +35,7 @@ class TEXTure:
         self.paint_step = 0
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.ncount = 0
+        self.ncount_1 = 0
         self.texturecount = 0
         self.image_count = 0  # Counter for valid images
         self.initialized_count = 0
@@ -735,19 +736,28 @@ class TEXTure:
         for i in tqdm(range(200), desc='fitting mesh colors'):
             
             optimizer.zero_grad()
+            self.save_vu_image
+            # output : obj 파일을 render_cache: phi 등등에서 render 한 사진
             outputs = self.mesh_model.render(background=background,
                                              render_cache=render_cache)
             rgb_render = outputs['image']
 
             #rgb_output : 실제 나온 사진, rgb_render : 분홍색 부터 예측하는 사진
             #rgb_render이 rgb_output에 비슷해짐
+            # render_update_mask : 검정색 배경에 토끼 흰색인 mask
+            if i == 150 :
+                self.save_vu_image(rgb_render, 'rgb_render(viewpoint 렌더시킨것)')
+                self.save_vu_image(rgb_output, 'rgb_output(빼는것)')
             mask = render_update_mask.flatten()
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
             masked_mask = mask[mask > 0]
-            #TODO: z-normal 기준 threshold 추가 - 80도 이상이면 0으로 만들기
-            loss = ((masked_pred - masked_target.detach()).pow(2) * masked_mask).mean()
 
+            # L2 loss
+            loss = ((masked_pred - masked_target.detach()).pow(2) * masked_mask).mean()
+            
+            #TODO: z-normal 기준 threshold 추가 - 80도 이상이면 0으로 만들기
+            
             # TODO: meta_outputs 빼고 실험
             meta_outputs = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
                                                   use_meta_texture=True, render_cache=render_cache)
