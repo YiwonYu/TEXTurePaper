@@ -15,6 +15,7 @@ from matplotlib import cm
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from torchvision.utils import save_image
 
 from src import utils
 from src.configs.train_config import TrainConfig
@@ -56,6 +57,7 @@ class TEXTure:
         self.view_dirs = ['front', 'left', 'back', 'right', 'overhead', 'bottom']
         # Mesh 불러오는 과정
         self.mesh_model = self.init_mesh_model()
+        self.init_mask = self.init_mesh_model()
         # Diffusion Initialization
         self.diffusion = self.init_diffusion()
         # Text_embeddings initialization
@@ -168,6 +170,7 @@ class TEXTure:
         logger.info('\tDone!')
 
     # Dataloader을 이용해 mesh_model의 현재상태 평가,save picture, video 생성
+    # Dataloader['val'] 에는 viewpoint 정보 들어있다.
     def evaluate(self, dataloader: DataLoader, save_path: Path, save_as_video: bool = False):
         logger.info(f'Evaluating and saving model, painting iteration #{self.paint_step}...')
         self.mesh_model.eval()
@@ -549,7 +552,7 @@ class TEXTure:
             rgb_output = rgb_renders[i].clone()
             rgb_output[:, :, min_hs[i]:max_hs[i], min_ws[i]:max_ws[i]] = cropped_rgb_out
 
-            fitted_pred_rgb, _ = self.project_back(
+            fitted_pred_rgb, fitted_z_normals = self.project_back(
                 render_cache=render_caches[i], 
                 background=background, 
                 rgb_output=rgb_output,
@@ -558,14 +561,25 @@ class TEXTure:
                 z_normals=z_normals_list[i],
                 z_normals_cache=z_normals_caches[i],
                 initial=initial)
-            
+            self.save_vu_image(fitted_z_normals, f'project_back_output_{i}_z_normals')
             self.save_vu_image(fitted_pred_rgb, f'project_back_output_{i}_rgb')
 
-            #save initial uv map texture
-            # self.uv_map_cache.init_dataloaders
-            self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'project_back_output_UV')
+            threshold = 0.7
+            mask = fitted_z_normals[:, 0, :, :] < threshold   # shape: [1, 1200, 1200]
+            mask_t = mask.float()
+            mask_uint8 = (mask_t * 255).to(torch.uint8)
+            img = Image.fromarray(mask_uint8.squeeze().cpu().numpy())
+
+            img.save(f"{self.train_renders_path}/mask_threshold_0.7.png")
+            mask_3ch = mask.unsqueeze(1).expand_as(fitted_z_normals)
+            masked_normals = fitted_z_normals * (~mask_3ch)     # side‑views zeroed out
+            self.save_vu_image(masked_normals, f'project_back_output_masked_normals')
+            # TODO: masked_normals 뽑았는데 다시 projection 시키기.
+        self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'project_back_output_UV')
         return
 
+    # eval_render dataloader을 입력받아, preds, textures, depths, normals = self.eval_render(data)
+    # 여기서 render 
     def eval_render(self, data):
         theta = data['theta']
         phi = data['phi']
@@ -573,22 +587,34 @@ class TEXTure:
         phi = phi - np.deg2rad(self.cfg.render.front_offset)
         phi = float(phi + 2 * np.pi if phi < 0 else phi)
         dim = self.cfg.render.eval_grid_size
+        # data로 이미지 뽑는것 (분홍색, initial)
         outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius,
                                          dims=(dim, dim), background='white')
         z_normals = outputs['normals'][:, -1:, :, :].clamp(0, 1)
         rgb_render = outputs['image']  # .permute(0, 2, 3, 1).contiguous().clamp(0, 1)
+        
         diff = (rgb_render.detach() - torch.tensor(self.mesh_model.default_color).view(1, 3, 1, 1).to(
             self.device)).abs().sum(axis=1)
+        # self.save_vu_image(diff, 'eval_render_rgb_(1)_diff')
+
         uncolored_mask = (diff < 0.1).float().unsqueeze(0)
-        rgb_render = rgb_render * (1 - uncolored_mask) + utils.color_with_shade([0.85, 0.85, 0.85], z_normals=z_normals,
-                                                                                light_coef=0.3) * uncolored_mask
+        # self.save_vu_image(uncolored_mask, 'eval_render_rgb_(2)_uncolored_mask')
+
+        rgb_render = rgb_render * (1 - uncolored_mask) + utils.color_with_shade([0.85, 0.85, 0.85],
+        z_normals=z_normals, light_coef=0.3) * uncolored_mask
+        # self.save_vu_image(rgb_render, 'eval_render_rgb_(3)_colored')
+
         outputs_with_median = self.mesh_model.render(theta=theta, phi=phi, radius=radius,
             dims=(dim, dim), use_median=True,
             render_cache=outputs['render_cache'])
+        # self.save_vu_image(outputs_with_median['image'], 'eval_render_rgb_(4)_median')
 
         meta_output = self.mesh_model.render(theta=theta, phi=phi, radius=radius,
             background=torch.Tensor([0, 0, 0]).to(self.device),
             use_meta_texture=True, render_cache=outputs['render_cache'])
+        # self.save_vu_image(meta_output['image'], 'eval_render_rgb_(5)_meta')
+
+
         pred_z_normals = meta_output['image'][:, :1].detach()
         rgb_render = rgb_render.permute(0, 2, 3, 1).contiguous().clamp(0, 1).detach()
         texture_rgb = outputs_with_median['texture_map'].permute(0, 2, 3, 1).contiguous().clamp(0, 1).detach()
@@ -710,7 +736,7 @@ class TEXTure:
         # 전체 Gaussian blur
         blurred_render_update_mask = utils.gaussian_blur(blurred_render_update_mask, 21, 16)
 
-        # Do not get out of the object(mask setting)-> 다시 슬림해짐, sibvsad 이거 왜하는거야
+        # Do not get out of the object(mask setting)-> 다시 슬림해짐
         blurred_render_update_mask[object_mask == 0] = 0
 
         #strict constraint
@@ -726,7 +752,7 @@ class TEXTure:
         # Update the normals (max value with two)
         z_normals_cache[:, 0, :, :] = torch.max(z_normals_cache[:, 0, :, :], z_normals[:, 0, :, :])
         self.save_vu_image(z_normals_cache, 'z_normals_cache_updated(project_back_input)')
-        self.save_vu_image(z_normals, 'z_normals(project_back_input')
+        self.save_vu_image(z_normals, 'z_normals(project_back_input)')
         #Adam optimizer for updating model parameter
         optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
         #TODO: get_params() 에서 self.texture_img 가져온다.
@@ -736,26 +762,47 @@ class TEXTure:
         for i in tqdm(range(200), desc='fitting mesh colors'):
             
             optimizer.zero_grad()
-            self.save_vu_image
+            if i == 0:
+                threshold = 0.75
+                # mask = z_normals_cache[:, 0, :, :] < threshold   # shape: [1, 1200, 1200]
+                # self.save_tensor_image(mask, 'mask')
+                # mask_t = mask.float() # Viewpoint 검정색 mask [1,1200,1200]
+                # mask_uint8 = (mask_t * 255).to(torch.uint8)
+                # self.save_tensor_image(mask_uint8, 'mask_uint8')
+
+                # 1) Background mask: where all 3 channels == 0
+                bg_mask = z_normals_cache[:, 0, :, :] == 0 # shape: [1, H, W], dtype=bool
+
+                # 2) Masked part (white where edge normal is bad(edge)
+                masked_part = (z_normals_cache[:, 0, :, :] < threshold) & ~bg_mask  # shape [1, 1200, 1200]
+                self.save_tensor_image(bg_mask, 'bg_mask')
+                self.save_tensor_image(masked_part, 'masked_part')
+   
+            # TODO: masked_normals 뽑았는데 다시 projection 시키기.
+
             # output : obj 파일을 render_cache: phi 등등에서 render 한 사진
             outputs = self.mesh_model.render(background=background,
                                              render_cache=render_cache)
             rgb_render = outputs['image']
+            rgb_mask = outputs['mask']
+
 
             #rgb_output : 실제 나온 사진, rgb_render : 분홍색 부터 예측하는 사진
-            #rgb_render이 rgb_output에 비슷해짐
+            #rgb_render이 rgb_output에 비슷해짐 -> rgb_render 이 학습하는거
             # render_update_mask : 검정색 배경에 토끼 흰색인 mask
-            if i == 150 :
-                self.save_vu_image(rgb_render, 'rgb_render(viewpoint 렌더시킨것)')
-                self.save_vu_image(rgb_output, 'rgb_output(빼는것)')
+            if i == 150 or i == 50:
+                self.save_vu_image(rgb_render, 'rgb_render(학습)')
+                self.save_vu_image(rgb_output, 'rgb_output(BaseImage)')
             mask = render_update_mask.flatten()
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
             masked_mask = mask[mask > 0]
 
+            black_masked = rgb_mask.reshape(1, rgb_mask.shape[1], -1)[:, :, mask > 0]
+            mask_target = masked_normals.reshape(1, rgb_mask.shape[1], -1)[:, :, mask > 0]
             # L2 loss
             loss = ((masked_pred - masked_target.detach()).pow(2) * masked_mask).mean()
-            
+            loss = ((black_masked - mask_target.detach()).pow(2) * masked_mask).mean()
             #TODO: z-normal 기준 threshold 추가 - 80도 이상이면 0으로 만들기
             
             # TODO: meta_outputs 빼고 실험
@@ -764,13 +811,17 @@ class TEXTure:
             current_z_normals = meta_outputs['image']
             current_z_mask = meta_outputs['mask'].flatten()
             masked_current_z_normals = current_z_normals.reshape(1, current_z_normals.shape[1], -1)[:, :,
-                                       current_z_mask == 1][:, :1]
+                                       current_z_mask == 1][:, :1] # -> 얘를 학습하는거
             masked_last_z_normals = z_normals_cache.reshape(1, z_normals_cache.shape[1], -1)[:, :,
                                     current_z_mask == 1][:, :1]
+            
+
             loss += (masked_current_z_normals - masked_last_z_normals.detach()).pow(2).mean()
+
             loss.backward()
             optimizer.step()
-        
+        self.save_vu_image(masked_pred, 'masked_pred')
+        self.save_vu_image(rgb_mask, 'rgb_mask')
         self.save_vu_image(rgb_render, 'rgb_render(project_back_output)')
         self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'UV_map(project_back_output)')
 
@@ -782,7 +833,7 @@ class TEXTure:
             if len(self.initial_uvmap) == 4:
                 initial = False
             
-
+        # 여기서 해야될것 : z_normals_cache가 원래 것, masked_current_z_normals가 학습하는것
         return rgb_render, current_z_normals
 
     def log_train_image(self, tensor: torch.Tensor, name: str, colormap=False):
@@ -803,26 +854,28 @@ class TEXTure:
             for k, intermedia_res in enumerate(intermediate_vis):
                 intermedia_res.save(
                     step_folder / f'{k:02d}_diffusion_step.jpg')
+                
+    def save_tensor_image(self, tensor: torch.Tensor, name: str = None, filepath : str = None ):
+        """
+        Save a float Tensor (values in [0,1]) of shape [1,H,W] or [1,3,H,W] to disk as a PNG.
+        """
+        filepath = self.train_renders_path
+        name = f"{self.ncount:04d}_{self.paint_step:02d}_{name}.png"
+        t = tensor.detach().cpu().squeeze(0)  # → [H,W] or [3,H,W]
 
-    def save_image(self, tensor: torch.Tensor, path: Path, name: str='output.png'):
-        # Convert to tensor if it's a Parameter
-        if isinstance(tensor, torch.nn.Parameter):
-            tensor = tensor.data  # Access raw tensor
-        # Ensure it's a tensor before calling `.detach()`
-        if isinstance(tensor, torch.Tensor):
-            image_np = tensor.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
+        if t.ndim == 2:
+            arr = (t.numpy() * 255).astype(np.uint8)
+            img = Image.fromarray(arr, mode="L")
+
+        elif t.ndim == 3 and t.shape[0] == 3:
+            arr = (t.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+            img = Image.fromarray(arr, mode="RGB")
+
         else:
-            raise TypeError("Expected a PyTorch tensor but got a different type.")
+            raise ValueError(f"Unsupported tensor shape {tensor.shape}")
 
-        # Normalize if needed (ensure values are in 0-255 range)
-        image_np = np.clip(image_np * 255, 0, 255).astype(np.uint8)
+        img.save(os.path.join(filepath, name))
 
-        # Save image using OpenCV
-        output_path = os.path.join(path, name)
-        cv2.imwrite(output_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
-
-        print(f"Saved: {output_path}")  # Debug message
-    
     def save_vu_image(self, tensor: torch.Tensor, name: str):
         self.ncount += 1
         # Save the image with the new naming format
@@ -831,6 +884,7 @@ class TEXTure:
     def save_uv_map(self, dataloader: DataLoader, save_path: Path, name: str = 'collapsed'):
         self.texturecount += 1
         logger.info(f'Saving UV maps to {save_path}')
+        # evel render 을 통해 UV map 뽑아냄 
         _, textures, _, _ = self.eval_render(next(iter(dataloader)))
         texture = tensor2numpy(textures[0])
         if name == 'collapsed':

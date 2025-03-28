@@ -541,7 +541,9 @@ class TexturedMeshModel(nn.Module):
 
         return {'image': pred_map, 'mask': mask, 'background': pred_back,
                 'foreground': pred_features, 'depth': depth, 'normals': normals, 'render_cache': render_cache,
-                'texture_map': texture_img}
+                'texture_map': texture_img,
+
+                }
 
     def draw(self, theta, phi, radius, target_rgb):
         # failed attempt to draw on the texture image
