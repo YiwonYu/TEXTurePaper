@@ -57,7 +57,6 @@ class TEXTure:
         self.view_dirs = ['front', 'left', 'back', 'right', 'overhead', 'bottom']
         # Mesh 불러오는 과정
         self.mesh_model = self.init_mesh_model()
-        self.init_mask = self.init_mesh_model()
         # Diffusion Initialization
         self.diffusion = self.init_diffusion()
         # Text_embeddings initialization
@@ -564,16 +563,6 @@ class TEXTure:
             self.save_vu_image(fitted_z_normals, f'project_back_output_{i}_z_normals')
             self.save_vu_image(fitted_pred_rgb, f'project_back_output_{i}_rgb')
 
-            threshold = 0.7
-            mask = fitted_z_normals[:, 0, :, :] < threshold   # shape: [1, 1200, 1200]
-            mask_t = mask.float()
-            mask_uint8 = (mask_t * 255).to(torch.uint8)
-            img = Image.fromarray(mask_uint8.squeeze().cpu().numpy())
-
-            img.save(f"{self.train_renders_path}/mask_threshold_0.7.png")
-            mask_3ch = mask.unsqueeze(1).expand_as(fitted_z_normals)
-            masked_normals = fitted_z_normals * (~mask_3ch)     # side‑views zeroed out
-            self.save_vu_image(masked_normals, f'project_back_output_masked_normals')
             # TODO: masked_normals 뽑았는데 다시 projection 시키기.
         self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'project_back_output_UV')
         return
@@ -747,6 +736,7 @@ class TEXTure:
             blurred_render_update_mask[z_was_better] = 0
         #update
         render_update_mask = blurred_render_update_mask
+        self.save_vu_image(rgb_output, 'rgb_output(project_back_input)')
         self.log_train_image(rgb_output * render_update_mask, 'project_back_input')
 
         # Update the normals (max value with two)
@@ -762,33 +752,54 @@ class TEXTure:
         for i in tqdm(range(200), desc='fitting mesh colors'):
             
             optimizer.zero_grad()
-            if i == 0:
-                threshold = 0.75
-                # mask = z_normals_cache[:, 0, :, :] < threshold   # shape: [1, 1200, 1200]
-                # self.save_tensor_image(mask, 'mask')
-                # mask_t = mask.float() # Viewpoint 검정색 mask [1,1200,1200]
-                # mask_uint8 = (mask_t * 255).to(torch.uint8)
-                # self.save_tensor_image(mask_uint8, 'mask_uint8')
+            # if i == 0:
+            #     threshold = 0.75
+            #     # 1) Background mask: where all 3 channels == 0
+            #     bg_mask = z_normals[:, 0, :, :] == 0 # shape: [1, H, W], dtype=bool
 
-                # 1) Background mask: where all 3 channels == 0
-                bg_mask = z_normals_cache[:, 0, :, :] == 0 # shape: [1, H, W], dtype=bool
+            #     # 2) Masked part (white where edge normal is bad(edge)
+            #     masked_part = (z_normals[:, 0, :, :] < threshold) & ~bg_mask  # shape [1, 1200, 1200]
+            #     self.save_tensor_image(bg_mask, 'bg_mask')
+            #     self.save_tensor_image(masked_part, 'masked_part')
 
-                # 2) Masked part (white where edge normal is bad(edge)
-                masked_part = (z_normals_cache[:, 0, :, :] < threshold) & ~bg_mask  # shape [1, 1200, 1200]
-                self.save_tensor_image(bg_mask, 'bg_mask')
-                self.save_tensor_image(masked_part, 'masked_part')
-   
-            # TODO: masked_normals 뽑았는데 다시 projection 시키기.
+            #     # 3) Get Extract the masked region from the rgb_output
+            #     masked_part_3ch = masked_part.unsqueeze(1).expand_as(rgb_output)
+            #     extracted_rgb = rgb_output * masked_part_3ch.float()
+            #     self.save_tensor_image(extracted_rgb, 'extracted_rgb')
 
-            # output : obj 파일을 render_cache: phi 등등에서 render 한 사진
+            #     # 4 Get Masked part to be neon green
+            #     neon_green = torch.tensor([0.0, 1.0, 0.0], device=rgb_output.device).view(1, 3, 1, 1)
+            #     mask_green = neon_green * masked_part_3ch
+            #     self.save_tensor_image(mask_green, 'mask_green')
+
+            # # TODO: masked_normals 뽑았는데 다시 projection 시키기.
+            # '''
+            # 1. loss(rgb_output, rgb_render_except_mask_part)
+            # 2. loss(rgb_output_mask part, median_filter(rgb_render_mask_part, prev_mask_part_rgb_output))
+            # '''
+            # # TODO: 같은것을 업데이트해버림!!!! -> Render 수정해야하는거같기도 하고
+            # mask_filter = self.mesh_model.render(background=background,
+            #                                       render_cache=render_cache,
+            #                                       use_mask_texture = True,
+            #                                       )
+            # mask_render = mask_filter['image']
+            # if i == 150 or i == 50:
+            #     self.save_tensor_image(mask_render, 'mask_render(학습)')
+            #     self.save_tensor_image(mask_green, 'mask_output(BaseImage)')
+            # mask = render_update_mask.flatten()
+            # mask_render_pred = mask_render.reshape(1, mask_render.shape[1], -1)[:, :, mask > 0]
+            # mask_green_target = mask_green.reshape(1, extracted_rgb.shape[1], -1)[:, :, mask > 0]
+            # mask_filtering_mask = mask[mask > 0]
+            # loss = ((mask_render_pred - mask_green_target.detach().float()).pow(2) * mask_filtering_mask).mean()
+            
+           
             outputs = self.mesh_model.render(background=background,
-                                             render_cache=render_cache)
+                                             render_cache=render_cache,
+                                             )
             rgb_render = outputs['image']
-            rgb_mask = outputs['mask']
 
-
-            #rgb_output : 실제 나온 사진, rgb_render : 분홍색 부터 예측하는 사진
-            #rgb_render이 rgb_output에 비슷해짐 -> rgb_render 이 학습하는거
+            #rgb_output[1,3,1200,1200] : 실제 나온 사진
+            # rgb_render[1,3,1200,1200] : 분홍색 부터 학습하는 사진
             # render_update_mask : 검정색 배경에 토끼 흰색인 mask
             if i == 150 or i == 50:
                 self.save_vu_image(rgb_render, 'rgb_render(학습)')
@@ -798,11 +809,9 @@ class TEXTure:
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
             masked_mask = mask[mask > 0]
 
-            black_masked = rgb_mask.reshape(1, rgb_mask.shape[1], -1)[:, :, mask > 0]
-            mask_target = masked_normals.reshape(1, rgb_mask.shape[1], -1)[:, :, mask > 0]
             # L2 loss
             loss = ((masked_pred - masked_target.detach()).pow(2) * masked_mask).mean()
-            loss = ((black_masked - mask_target.detach()).pow(2) * masked_mask).mean()
+
             #TODO: z-normal 기준 threshold 추가 - 80도 이상이면 0으로 만들기
             
             # TODO: meta_outputs 빼고 실험
@@ -820,8 +829,7 @@ class TEXTure:
 
             loss.backward()
             optimizer.step()
-        self.save_vu_image(masked_pred, 'masked_pred')
-        self.save_vu_image(rgb_mask, 'rgb_mask')
+        # self.save_vu_image(mask_render, 'mask_filtering')
         self.save_vu_image(rgb_render, 'rgb_render(project_back_output)')
         self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'UV_map(project_back_output)')
 
@@ -859,6 +867,7 @@ class TEXTure:
         """
         Save a float Tensor (values in [0,1]) of shape [1,H,W] or [1,3,H,W] to disk as a PNG.
         """
+        self.ncount += 1
         filepath = self.train_renders_path
         name = f"{self.ncount:04d}_{self.paint_step:02d}_{name}.png"
         t = tensor.detach().cpu().squeeze(0)  # → [H,W] or [3,H,W]
