@@ -160,7 +160,6 @@ class TexturedMeshModel(nn.Module):
         self.default_color = [0.8, 0.1, 0.8]
         self.background_sphere_colors, self.texture_img = self.init_paint()
         self.meta_texture_img = nn.Parameter(torch.zeros_like(self.texture_img))
-        self.mask_texure_img = nn.Parameter(torch.zeros_like(self.texture_img))
 
         self.background_sphere_colors_initial = self.background_sphere_colors.clone()
         self.texture_img_initial = self.texture_img.clone()
@@ -479,8 +478,8 @@ class TexturedMeshModel(nn.Module):
             assert theta is not None and phi is not None and radius is not None
         background_sphere_colors = self.background_sphere_colors[
             torch.randint(0, self.background_sphere_colors.shape[0], (1,))]
-        if use_mask_texture:
-            texture_img = self.mask_texure_img
+        if use_meta_texture:
+            texture_img = self.meta_texture_img
         else:
             texture_img = self.texture_img
         if self.augmentations:
