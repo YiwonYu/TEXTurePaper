@@ -157,7 +157,9 @@ class TexturedMeshModel(nn.Module):
         self.renderer = Renderer(device=self.device, dim=(render_grid_size, render_grid_size),
                                  interpolation_mode=self.opt.texture_interpolation_mode)
         self.env_sphere, self.mesh = self.init_meshes()
-        self.default_color = [0.8, 0.1, 0.8]
+        # self.default_color = [0.8, 0.1, 0.8] # very pink
+        # self.default_color = [1.0, 1.0, 1.0] # white
+        self.default_color = [1.0, 0.82, 0.86] #pastel pink
         self.background_sphere_colors, self.texture_img, _ = self.init_paint()
         self.meta_texture_img = nn.Parameter(torch.zeros_like(self.texture_img))
 
