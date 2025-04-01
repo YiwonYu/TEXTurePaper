@@ -23,7 +23,7 @@ def build_cotan_laplacian_torch(points_tensor: torch.Tensor, tris_tensor: torch.
     a, b, c = (tris[:, 0], tris[:, 1], tris[:, 2])
     A = np.take(points, a, axis=1)
     B = np.take(points, b, axis=1)
-    C = np.take(points, c, axis=1)
+    C = np.take(points, c, axis=1) 
 
     eab, ebc, eca = (B - A, C - B, A - C)
     eab = eab / np.linalg.norm(eab, axis=0)[None, :]
@@ -158,7 +158,7 @@ class TexturedMeshModel(nn.Module):
                                  interpolation_mode=self.opt.texture_interpolation_mode)
         self.env_sphere, self.mesh = self.init_meshes()
         self.default_color = [0.8, 0.1, 0.8]
-        self.background_sphere_colors, self.texture_img = self.init_paint()
+        self.background_sphere_colors, self.texture_img, _ = self.init_paint()
         self.meta_texture_img = nn.Parameter(torch.zeros_like(self.texture_img))
 
         self.background_sphere_colors_initial = self.background_sphere_colors.clone()
@@ -269,7 +269,8 @@ class TexturedMeshModel(nn.Module):
             texture = torch.ones(1, 3, self.texture_resolution, self.texture_resolution).cuda() * torch.Tensor(
                 self.default_color).reshape(1, 3, 1, 1).cuda()
         texture_img = nn.Parameter(texture)
-        return background_sphere_colors, texture_img
+        mask_img = nn.Parameter(texture)
+        return background_sphere_colors, texture_img, mask_img
 
     def invert_color(self, color: torch.Tensor) -> torch.Tensor:
         # inverse linear approx to find latent
@@ -473,7 +474,7 @@ class TexturedMeshModel(nn.Module):
 
     # 여기서 자동으로 previous UV Map을 반영하는데 어디일까
     def render(self, theta=None, phi=None, radius=None, background=None,
-               use_meta_texture=False, use_mask_texture=False, render_cache=None, use_median=False, dims=None):
+               use_meta_texture=False, render_cache=None, use_median=False, dims=None):
         if render_cache is None:
             assert theta is not None and phi is not None and radius is not None
         background_sphere_colors = self.background_sphere_colors[
@@ -482,25 +483,38 @@ class TexturedMeshModel(nn.Module):
             texture_img = self.meta_texture_img
         else:
             texture_img = self.texture_img
+
+
         if self.augmentations:
+            # random으로 확장된 vertices 가져옴
             augmented_vertices = self.augment_vertices()
         else:
+            # 아니면 원래 mesh vertices 사용
             augmented_vertices = self.mesh.vertices
 
+        # texture 이미지를 default color의 median value를 사용한다.
         if use_median:
+            # texture 이미지가 default color이랑 얼마나 차이나는지 게산
             diff = (texture_img - torch.tensor(self.default_color).view(1, 3, 1, 1).to(
                 self.device)).abs().sum(axis=1)
+            # 차이가 적은 부분 default mask로 
             default_mask = (diff < 0.1).float().unsqueeze(0)
+            # deafult mask가 아닌 부분의 pixel의 median color를 구함
             median_color = texture_img[0, :].reshape(3, -1)[:, default_mask.flatten() == 0].mean(
                 axis=1)
             texture_img = texture_img.clone()
+            # 업데이트
             with torch.no_grad():
                 texture_img.reshape(3, -1)[:, default_mask.flatten() == 1] = median_color.reshape(-1, 1)
+
         background_type = 'none'
         use_render_back = False
+        # background가 주어지면 render_back을 사용, meta texture 할때 여기 안들아간다.
         if background is not None and type(background) == str:
             background_type = background
             use_render_back = True
+
+        # texture_img 이용해서 rendering view 뽑아낸다. render_cache(face_normals, uv_features, face_idx, depth_map)는 업데이트
         pred_features, mask, depth, normals, render_cache = self.renderer.render_single_view_texture(augmented_vertices,
             self.mesh.faces,
             self.face_attributes,
@@ -512,28 +526,35 @@ class TexturedMeshModel(nn.Module):
             render_cache=render_cache,
             dims=dims,
             background_type=background_type)
-
+        # mask tensor은 gradient 없어용
         mask = mask.detach()
-
+        # 위에서 background 있으면 use_render_back: True, meta texture할때 안들어감
         if use_render_back:
-            pred_map = pred_features
+            # 아래에서 pred_map과 pred_back을 blend 안시킨다.
+            pred_map = pred_features #texture render 시킨 이미지
             pred_back = pred_features
         else:
+            # background가 없으면
             if background is None:
                 pred_back, _, _ = self.renderer.render_single_view(self.env_sphere,
                 background_sphere_colors,
-                elev=theta,
+                elev=theta,    
                 azim=phi,
                 radius=radius,
                 dims=dims,
                 look_at_height=self.dy, calc_depth=False)
+
+            # Background as a one-dimensional tensor, constant 색으로 채운다 -> Meta texture 할때 여기로 들어감
             elif len(background.shape) == 1:
                 pred_back = torch.ones_like(pred_features) * background.reshape(1, 3, 1, 1)
+
+            # background가 있는데 type(background) 가 str 이 아닌경우
             else:
                 pred_back = background
-
+            # Blending : background와 texture render한 pred_features를 합친다.
             pred_map = pred_back * (1 - mask) + pred_features * mask
 
+        # use_meta_texture 안쓰면 위에서 pred_map과 pred_features(raw texture output)이 blend 되서 범위를 벗어남 -> valid range [0, 1]
         if not use_meta_texture:
             pred_map = pred_map.clamp(0, 1)
             pred_features = pred_features.clamp(0, 1)
@@ -541,7 +562,7 @@ class TexturedMeshModel(nn.Module):
         return {'image': pred_map, 'mask': mask, 'background': pred_back,
                 'foreground': pred_features, 'depth': depth, 'normals': normals, 'render_cache': render_cache,
                 'texture_map': texture_img,
-
+                'background_sphere_colors': background_sphere_colors,
                 }
 
     def draw(self, theta, phi, radius, target_rgb):

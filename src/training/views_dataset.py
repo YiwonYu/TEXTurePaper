@@ -94,6 +94,7 @@ class MultiviewDataset:
         size = self.cfg.n_views
 
         self.phis = [(index / size) * 360 for index in range(size)]
+        # self.phis = [0, np.pi]
         self.thetas = [self.cfg.base_theta for _ in range(size)]
 
         # Alternate lists

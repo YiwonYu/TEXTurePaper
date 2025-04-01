@@ -16,6 +16,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torchvision.utils import save_image
+import kornia
 
 from src import utils
 from src.configs.train_config import TrainConfig
@@ -57,6 +58,7 @@ class TEXTure:
         self.view_dirs = ['front', 'left', 'back', 'right', 'overhead', 'bottom']
         # Mesh 불러오는 과정
         self.mesh_model = self.init_mesh_model()
+        self.mask_model = self.init_mesh_model()
         # Diffusion Initialization
         self.diffusion = self.init_diffusion()
         # Text_embeddings initialization
@@ -340,6 +342,8 @@ class TEXTure:
         theta, phi, radius = data['theta'], data['phi'], data['radius']
         # phi_angles = [np.pi, np.pi/2, 3*np.pi/2, 0]
         phi_angles = [0, np.pi/2, 3*np.pi/2, np.pi]
+        # phi_angles = [np.pi/4, 2*np.pi/4, 6*np.pi/4, 7*np.pi/4,]
+        # phi_angles = [4 * np.pi/4, 2 * np.pi/4, 6 * np.pi/4, 0 * np.pi/4]
         cropped_renders = []
         cropped_depths = []
         cropped_masks = []
@@ -560,11 +564,11 @@ class TEXTure:
                 z_normals=z_normals_list[i],
                 z_normals_cache=z_normals_caches[i],
                 initial=initial)
-            self.save_vu_image(fitted_z_normals, f'project_back_output_{i}_z_normals')
-            self.save_vu_image(fitted_pred_rgb, f'project_back_output_{i}_rgb')
+            # self.save_vu_image(fitted_z_normals, f'project_back_output_{i}_z_normals')
+            # self.save_vu_image(fitted_pred_rgb, f'project_back_output_{i}_rgb')
 
             # TODO: masked_normals 뽑았는데 다시 projection 시키기.
-        self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'project_back_output_UV')
+        # self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'project_back_output_UV')
         return
 
     # eval_render dataloader을 입력받아, preds, textures, depths, normals = self.eval_render(data)
@@ -736,74 +740,101 @@ class TEXTure:
             blurred_render_update_mask[z_was_better] = 0
         #update
         render_update_mask = blurred_render_update_mask
-        self.save_vu_image(rgb_output, 'rgb_output(project_back_input)')
+        # self.save_vu_image(rgb_output, 'rgb_output(project_back_input)')
         self.log_train_image(rgb_output * render_update_mask, 'project_back_input')
 
         # Update the normals (max value with two)
         z_normals_cache[:, 0, :, :] = torch.max(z_normals_cache[:, 0, :, :], z_normals[:, 0, :, :])
-        self.save_vu_image(z_normals_cache, 'z_normals_cache_updated(project_back_input)')
-        self.save_vu_image(z_normals, 'z_normals(project_back_input)')
+        # self.save_vu_image(z_normals_cache, 'z_normals_cache_updated(project_back_input)')
+        # self.save_vu_image(z_normals, 'z_normals(project_back_input)')
+
+        # 현재 상태의 bad z-normal 부분 mask
+        threshold = 0.85
+        # 1) Background mask: where all 3 channels == 0
+        bg_mask = z_normals[:, 0, :, :] == 0 # shape: [1, H, W], dtype=bool
+
+        # 2) Masked part (white where edge normal is bad(edge)
+        masked_part = (z_normals[:, 0, :, :] < threshold) & ~bg_mask  # shape [1, 1200, 1200]
+        # self.save_tensor_image(bg_mask, 'bg_mask')
+        # self.save_tensor_image(masked_part, 'masked_part')
+
+        # 3) Get Extract the masked region from the rgb_output
+        masked_part_3ch = masked_part.unsqueeze(1).expand_as(rgb_output)
+        combined_mask = torch.where(masked_part_3ch.bool(), rgb_output, background)
+        
+
+        # Optimizer For Mask
+        optimizer = torch.optim.Adam(self.mask_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
+        if self.paint_step < 2:
+            for i in tqdm(range(200), desc='fitting mesh colors'):
+                
+                optimizer.zero_grad()
+                '''
+                1. loss(rgb_output, rgb_render_except_mask_part)
+                2. loss(rgb_output_mask part, median_filter(rgb_render_mask_part, prev_mask_part_rgb_output))
+                '''
+                mask_filter = self.mask_model.render( background=background,
+                                                    render_cache=render_cache,
+                                                    )
+                mask_render = mask_filter['image']
+                if i == 0:
+                    self.prev_mask = mask_render.clone()
+                    color_tensor = torch.tensor(self.mask_model.default_color, dtype=torch.float32, device=self.device).view(1, 3, 1, 1)
+                    color_image = color_tensor.expand(1, 3, 1200, 1200)
+                    self.save_tensor_image(color_image, 'mask_filtering')
+                    
+                    self.save_tensor_image(mask_render, 'mask_render(학습)')
+                    self.save_tensor_image(combined_mask, 'mask_output(BaseImage)')
+    
+                mask = render_update_mask.flatten()
+                mask_render_pred = mask_render.reshape(1, mask_render.shape[1], -1)[:, :, mask > 0]
+                mask_output_target = combined_mask.reshape(1, combined_mask.shape[1], -1)[:, :, mask > 0]
+                mask_filtering_mask = mask[mask > 0]
+                loss_m = ((mask_render_pred - mask_output_target.detach().float()).pow(2) * mask_filtering_mask).mean()
+                
+                loss_m.backward()
+                optimizer.step()
+
+            diff = torch.abs(self.prev_mask - color_image)  # shape: [1, 3, H, W]
+            self.save_tensor_image(self.prev_mask, 'prev_mask')
+            self.save_tensor_image(color_image, 'color_image')
+            self.save_tensor_image(diff, '1. diff')
+
+            mask_non_bg = (diff > 0.005).float().sum(dim=1, keepdim=True) > 0
+            mask_non_bg = mask_non_bg.float()
+            self.save_tensor_image(mask_non_bg, '2. mask_non_bg')
+
+            kernel = torch.ones(9, 9, device=mask_non_bg.device)
+            eroded_mask = kornia.morphology.erosion(mask_non_bg, kernel)
+            self.save_tensor_image(eroded_mask, '3. eroded_mask')
+            eroded_mask = kornia.filters.median_blur(eroded_mask, (5, 5))
+            self.save_tensor_image(eroded_mask, '4. eroded_mask_filtered')
+            extracted_foreground = self.prev_mask * eroded_mask
+            self.save_tensor_image(extracted_foreground, '5. extracted_foreground')
+
+            # extracted_foreground_filtered = extracted_foreground
+            extracted_foreground_filtered = kornia.filters.median_blur(extracted_foreground, (5, 5))
+            self.save_tensor_image(extracted_foreground_filtered, '6. extracted_foreground_filtered')
+
+            # combined = extracted_foreground_filtered * eroded_mask * 0.5 + rgb_output * (1 - eroded_mask * 0.5)
+            combined = extracted_foreground_filtered * eroded_mask + rgb_output * (1 - eroded_mask)
+            self.save_tensor_image(combined, '6. combined')
+
+            rgb_output = combined
+
         #Adam optimizer for updating model parameter
         optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
-        #TODO: get_params() 에서 self.texture_img 가져온다.
-        #여기서 계속 업데이트 되는게 문제였구만
-        
-        #Optimize Mesh Colors 200 iteration
+
         for i in tqdm(range(200), desc='fitting mesh colors'):
-            
             optimizer.zero_grad()
-            # if i == 0:
-            #     threshold = 0.75
-            #     # 1) Background mask: where all 3 channels == 0
-            #     bg_mask = z_normals[:, 0, :, :] == 0 # shape: [1, H, W], dtype=bool
-
-            #     # 2) Masked part (white where edge normal is bad(edge)
-            #     masked_part = (z_normals[:, 0, :, :] < threshold) & ~bg_mask  # shape [1, 1200, 1200]
-            #     self.save_tensor_image(bg_mask, 'bg_mask')
-            #     self.save_tensor_image(masked_part, 'masked_part')
-
-            #     # 3) Get Extract the masked region from the rgb_output
-            #     masked_part_3ch = masked_part.unsqueeze(1).expand_as(rgb_output)
-            #     extracted_rgb = rgb_output * masked_part_3ch.float()
-            #     self.save_tensor_image(extracted_rgb, 'extracted_rgb')
-
-            #     # 4 Get Masked part to be neon green
-            #     neon_green = torch.tensor([0.0, 1.0, 0.0], device=rgb_output.device).view(1, 3, 1, 1)
-            #     mask_green = neon_green * masked_part_3ch
-            #     self.save_tensor_image(mask_green, 'mask_green')
-
-            # # TODO: masked_normals 뽑았는데 다시 projection 시키기.
-            # '''
-            # 1. loss(rgb_output, rgb_render_except_mask_part)
-            # 2. loss(rgb_output_mask part, median_filter(rgb_render_mask_part, prev_mask_part_rgb_output))
-            # '''
-            # # TODO: 같은것을 업데이트해버림!!!! -> Render 수정해야하는거같기도 하고
-            # mask_filter = self.mesh_model.render(background=background,
-            #                                       render_cache=render_cache,
-            #                                       use_mask_texture = True,
-            #                                       )
-            # mask_render = mask_filter['image']
-            # if i == 150 or i == 50:
-            #     self.save_tensor_image(mask_render, 'mask_render(학습)')
-            #     self.save_tensor_image(mask_green, 'mask_output(BaseImage)')
-            # mask = render_update_mask.flatten()
-            # mask_render_pred = mask_render.reshape(1, mask_render.shape[1], -1)[:, :, mask > 0]
-            # mask_green_target = mask_green.reshape(1, extracted_rgb.shape[1], -1)[:, :, mask > 0]
-            # mask_filtering_mask = mask[mask > 0]
-            # loss = ((mask_render_pred - mask_green_target.detach().float()).pow(2) * mask_filtering_mask).mean()
-            
-           
             outputs = self.mesh_model.render(background=background,
                                              render_cache=render_cache,
                                              )
             rgb_render = outputs['image']
-
-            #rgb_output[1,3,1200,1200] : 실제 나온 사진
-            # rgb_render[1,3,1200,1200] : 분홍색 부터 학습하는 사진
-            # render_update_mask : 검정색 배경에 토끼 흰색인 mask
-            if i == 150 or i == 50:
+            if i == 150:
                 self.save_vu_image(rgb_render, 'rgb_render(학습)')
                 self.save_vu_image(rgb_output, 'rgb_output(BaseImage)')
+                
             mask = render_update_mask.flatten()
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
@@ -812,12 +843,15 @@ class TEXTure:
             # L2 loss
             loss = ((masked_pred - masked_target.detach()).pow(2) * masked_mask).mean()
 
-            #TODO: z-normal 기준 threshold 추가 - 80도 이상이면 0으로 만들기
-            
-            # TODO: meta_outputs 빼고 실험
+            # current_z_normals [1,3,1200,1200]
+            # meta_outputs['mask'] [1,1,1200,1200]
+            # z_normals_cache [1,3,1200,1200]
             meta_outputs = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
                                                   use_meta_texture=True, render_cache=render_cache)
             current_z_normals = meta_outputs['image']
+            if i == 150 :
+                self.save_tensor_image(current_z_normals, 'meta_outputs(학습)')
+                self.save_tensor_image(z_normals_cache, 'z_normals_cache(BaseImage)')
             current_z_mask = meta_outputs['mask'].flatten()
             masked_current_z_normals = current_z_normals.reshape(1, current_z_normals.shape[1], -1)[:, :,
                                        current_z_mask == 1][:, :1] # -> 얘를 학습하는거
@@ -829,9 +863,8 @@ class TEXTure:
 
             loss.backward()
             optimizer.step()
-        # self.save_vu_image(mask_render, 'mask_filtering')
         self.save_vu_image(rgb_render, 'rgb_render(project_back_output)')
-        self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'UV_map(project_back_output)')
+        # self.save_uv_map(self.dataloaders['val'], self.eval_renders_path, 'UV_map(project_back_output)')
 
         #optimizer로 업데이트 -> uv_map 저장 -> param 초기화
         if initial == True:
@@ -840,8 +873,7 @@ class TEXTure:
 
             if len(self.initial_uvmap) == 4:
                 initial = False
-            
-        # 여기서 해야될것 : z_normals_cache가 원래 것, masked_current_z_normals가 학습하는것
+
         return rgb_render, current_z_normals
 
     def log_train_image(self, tensor: torch.Tensor, name: str, colormap=False):
@@ -863,27 +895,35 @@ class TEXTure:
                 intermedia_res.save(
                     step_folder / f'{k:02d}_diffusion_step.jpg')
                 
-    def save_tensor_image(self, tensor: torch.Tensor, name: str = None, filepath : str = None ):
+    def save_tensor_image(self, tensor: torch.Tensor, name: str = None, filepath: str = None):
         """
-        Save a float Tensor (values in [0,1]) of shape [1,H,W] or [1,3,H,W] to disk as a PNG.
+        Save a float Tensor (values in [0,1]) of shape [1,H,W], [1,1,H,W] or [1,3,H,W] to disk as a PNG.
         """
         self.ncount += 1
         filepath = self.train_renders_path
         name = f"{self.ncount:04d}_{self.paint_step:02d}_{name}.png"
-        t = tensor.detach().cpu().squeeze(0)  # → [H,W] or [3,H,W]
+        t = tensor.detach().cpu().squeeze(0)  # → [H,W] or [C,H,W]
 
         if t.ndim == 2:
+            # Tensor is of shape [H, W]
             arr = (t.numpy() * 255).astype(np.uint8)
             img = Image.fromarray(arr, mode="L")
-
-        elif t.ndim == 3 and t.shape[0] == 3:
-            arr = (t.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-            img = Image.fromarray(arr, mode="RGB")
-
+        elif t.ndim == 3:
+            if t.shape[0] == 3:
+                # Tensor is of shape [3, H, W]
+                arr = (t.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+                img = Image.fromarray(arr, mode="RGB")
+            elif t.shape[0] == 1:
+                # Tensor is of shape [1, H, W] which we treat as grayscale
+                arr = (t.squeeze(0).numpy() * 255).astype(np.uint8)
+                img = Image.fromarray(arr, mode="L")
+            else:
+                raise ValueError(f"Unsupported tensor shape {tensor.shape}")
         else:
             raise ValueError(f"Unsupported tensor shape {tensor.shape}")
 
         img.save(os.path.join(filepath, name))
+
 
     def save_vu_image(self, tensor: torch.Tensor, name: str):
         self.ncount += 1
