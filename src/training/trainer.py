@@ -358,7 +358,8 @@ class TEXTure:
         max_hs = []
         max_ws = []
 
-        for phi in phi_angles:
+        for idx, phi in enumerate(phi_angles):
+            self.idx = idx
             phi = phi - np.deg2rad(self.cfg.render.front_offset)
             phi = float(phi + 2 * np.pi if phi < 0 else phi)
             logger.info(f'Painting from theta: {theta}, phi: {phi}, radius: {radius}')
@@ -563,7 +564,8 @@ class TEXTure:
                 update_mask=update_masks[i], 
                 z_normals=z_normals_list[i],
                 z_normals_cache=z_normals_caches[i],
-                initial=initial)
+                initial=initial,
+                index = i)
             # self.save_vu_image(fitted_z_normals, f'project_back_output_{i}_z_normals')
             # self.save_vu_image(fitted_pred_rgb, f'project_back_output_{i}_rgb')
 
@@ -710,7 +712,7 @@ class TEXTure:
     def project_back(self, render_cache: Dict[str, Any], background: Any, rgb_output: torch.Tensor,
         object_mask: torch.Tensor, update_mask: torch.Tensor, z_normals: torch.Tensor,
         z_normals_cache: torch.Tensor,
-        initial: False):
+        initial: False, index = 0):
         #cv2.erode : 침식연산 깎으면서, noise 제거, mask가 잘 fit하도록
         object_mask = torch.from_numpy(
             cv2.erode(object_mask[0, 0].detach().cpu().numpy(), np.ones((5, 5), np.uint8))).to(
@@ -761,66 +763,6 @@ class TEXTure:
         # 3) Get Extract the masked region from the rgb_output
         masked_part_3ch = masked_part.unsqueeze(1).expand_as(rgb_output)
         combined_mask = torch.where(masked_part_3ch.bool(), rgb_output, background)
-        
-
-        # # Optimizer For Mask
-        # optimizer = torch.optim.Adam(self.mask_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
-        # if self.paint_step < 2:
-        #     for i in tqdm(range(200), desc='fitting mesh colors'):
-                
-        #         optimizer.zero_grad()
-        #         '''
-        #         1. loss(rgb_output, rgb_render_except_mask_part)
-        #         2. loss(rgb_output_mask part, median_filter(rgb_render_mask_part, prev_mask_part_rgb_output))
-        #         '''
-        #         mask_filter = self.mask_model.render( background=background,
-        #                                             render_cache=render_cache,
-        #                                             )
-        #         mask_render = mask_filter['image']
-        #         if i == 0:
-        #             self.prev_mask = mask_render.clone()
-        #             color_tensor = torch.tensor(self.mask_model.default_color, dtype=torch.float32, device=self.device).view(1, 3, 1, 1)
-        #             color_image = color_tensor.expand(1, 3, 1200, 1200)
-        #             self.save_tensor_image(color_image, 'mask_filtering')
-                    
-        #             self.save_tensor_image(mask_render, 'mask_render(학습)')
-        #             self.save_tensor_image(combined_mask, 'mask_output(BaseImage)')
-    
-        #         mask = render_update_mask.flatten()
-        #         mask_render_pred = mask_render.reshape(1, mask_render.shape[1], -1)[:, :, mask > 0]
-        #         mask_output_target = combined_mask.reshape(1, combined_mask.shape[1], -1)[:, :, mask > 0]
-        #         mask_filtering_mask = mask[mask > 0]
-        #         loss_m = ((mask_render_pred - mask_output_target.detach().float()).pow(2) * mask_filtering_mask).mean()
-                
-        #         loss_m.backward()
-        #         optimizer.step()
-
-        #     diff = torch.abs(self.prev_mask - color_image)  # shape: [1, 3, H, W]
-        #     self.save_tensor_image(self.prev_mask, 'prev_mask')
-        #     self.save_tensor_image(color_image, 'color_image')
-        #     self.save_tensor_image(diff, '1. diff')
-
-        #     mask_non_bg = (diff > 0.005).float().sum(dim=1, keepdim=True) > 0
-        #     mask_non_bg = mask_non_bg.float()
-        #     self.save_tensor_image(mask_non_bg, '2. mask_non_bg')
-
-        #     kernel = torch.ones(9, 9, device=mask_non_bg.device)
-        #     eroded_mask = kornia.morphology.erosion(mask_non_bg, kernel)
-        #     self.save_tensor_image(eroded_mask, '3. eroded_mask')
-        #     eroded_mask = kornia.filters.median_blur(eroded_mask, (5, 5))
-        #     self.save_tensor_image(eroded_mask, '4. eroded_mask_filtered')
-        #     extracted_foreground = self.prev_mask * eroded_mask
-        #     self.save_tensor_image(extracted_foreground, '5. extracted_foreground')
-
-        #     # extracted_foreground_filtered = extracted_foreground
-        #     extracted_foreground_filtered = kornia.filters.median_blur(extracted_foreground, (5, 5))
-        #     self.save_tensor_image(extracted_foreground_filtered, '6. extracted_foreground_filtered')
-
-        #     # combined = extracted_foreground_filtered * eroded_mask * 0.5 + rgb_output * (1 - eroded_mask * 0.5)
-        #     combined = extracted_foreground_filtered * eroded_mask + rgb_output * (1 - eroded_mask)
-        #     self.save_tensor_image(combined, '6. combined')
-
-        #     rgb_output = combined
 
         #Adam optimizer for updating model parameter
         optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
@@ -831,7 +773,7 @@ class TEXTure:
                                              render_cache=render_cache,
                                              )
             rgb_render = outputs['image']
-            if i == 0:
+            if i == 0 and index > 0:
                 self.prev_mask = rgb_render.clone()
                 color_tensor = torch.tensor(self.mesh_model.default_color, dtype=torch.float32, device=self.device).view(1, 3, 1, 1)
                 color_image = color_tensor.expand(1, 3, 1200, 1200)
@@ -844,21 +786,33 @@ class TEXTure:
                 mask_non_bg = (diff > 0.005).float().sum(dim=1, keepdim=True) > 0
                 mask_non_bg = mask_non_bg.float()
                 self.save_tensor_image(mask_non_bg, '2. mask_non_bg') # Mask
-                kernel = torch.ones(9, 9, device=mask_non_bg.device)
-                eroded_mask = kornia.morphology.erosion(mask_non_bg, kernel)
-                self.save_tensor_image(eroded_mask, '3. eroded_mask')
-                eroded_mask = kornia.filters.median_blur(eroded_mask, (5, 5))
-                self.save_tensor_image(eroded_mask, '4. eroded_mask_filtered')
-                extracted_foreground = self.prev_mask * eroded_mask
-                self.save_tensor_image(extracted_foreground, '5. extracted_foreground')
-                # extracted_foreground_filtered = extracted_foreground
-                extracted_foreground_filtered = kornia.filters.median_blur(extracted_foreground, (5, 5))
-                self.save_tensor_image(extracted_foreground_filtered, '6. extracted_foreground_filtered')
-                # combined = extracted_foreground_filtered * eroded_mask * 0.5 + rgb_output * (1 - eroded_mask * 0.5)
-                combined = extracted_foreground_filtered * eroded_mask + rgb_output * (1 - eroded_mask)
-                self.save_tensor_image(combined, '6. combined')
-                rgb_output = combined
-                
+                self.save_tensor_image(self.prev_mask, 'current_rendered') 
+                extracted_with_mask_black = self.prev_mask * mask_non_bg
+                self.save_tensor_image(extracted_with_mask_black, '3. extracted_with_mask_black') # Extracted Foreground
+                extracted_with_mask = mask_non_bg * self.prev_mask + (1 - mask_non_bg) * 1.0
+                self.save_tensor_image(extracted_with_mask, '4. extracted_with_mask_white') # Extracted Foreground
+                # -------------------------------Laplacian Pyramid--------------------------------
+                self.save_tensor_image(rgb_output, '3. img_1')
+                self.save_tensor_image(extracted_with_mask, '4. img_2')
+                blended_texture = self.blend_texture_patches(rgb_output, extracted_with_mask, mask_non_bg)
+                self.save_tensor_image(blended_texture, '5. blended_texture')
+                # --------------------------------------------------------------------------------
+                # kernel = torch.ones(9, 9, device=mask_non_bg.device)
+                # eroded_mask = kornia.morphology.erosion(mask_non_bg, kernel)
+                # self.save_tensor_image(eroded_mask, '3. eroded_mask')
+                # eroded_mask = kornia.filters.median_blur(eroded_mask, (5, 5))
+                # self.save_tensor_image(eroded_mask, '4. eroded_mask_filtered')
+                # extracted_foreground = self.prev_mask * eroded_mask
+                # self.save_tensor_image(extracted_foreground, '5. extracted_foreground')
+                # # extracted_foreground_filtered = extracted_foreground
+                # extracted_foreground_filtered = kornia.filters.median_blur(extracted_foreground, (5, 5))
+                # self.save_tensor_image(extracted_foreground_filtered, '6. extracted_foreground_filtered')
+                # # combined = extracted_foreground_filtered * eroded_mask * 0.5 + rgb_output * (1 - eroded_mask * 0.5)
+                # combined = extracted_foreground_filtered * eroded_mask + rgb_output * (1 - eroded_mask)
+                # self.save_tensor_image(combined, '6. combined')
+                # rgb_output = combined
+                rgb_output = blended_texture.to(self.device)
+
             mask = render_update_mask.flatten()
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
@@ -948,6 +902,43 @@ class TEXTure:
 
         img.save(os.path.join(filepath, name))
 
+    def save_numpy_image(self, array: np.ndarray, name: str = None, filepath: str = None):
+        """
+        Save a float NumPy array (values in [0,1]) of shape [H,W], [1,H,W], [H,W,1], [H,W,3] or [3,H,W] to disk as a PNG.
+        """
+        self.ncount += 1
+        filepath = self.train_renders_path
+        name = f"{self.ncount:04d}_{self.paint_step:02d}_{name}.png"
+
+        if array.ndim == 2:
+            # Grayscale image of shape [H, W]
+            arr = (array * 255).astype(np.uint8)
+            img = Image.fromarray(arr, mode="L")
+        elif array.ndim == 3:
+            if array.shape[0] == 3:
+                # RGB image with shape [3, H, W]
+                arr = (np.transpose(array, (1, 2, 0)) * 255).astype(np.uint8)
+                img = Image.fromarray(arr, mode="RGB")
+            elif array.shape[2] == 3:
+                # RGB image with shape [H, W, 3]
+                arr = (array * 255).astype(np.uint8)
+                img = Image.fromarray(arr, mode="RGB")
+            elif array.shape[0] == 1:
+                # Grayscale image with shape [1, H, W]
+                arr = (array.squeeze(0) * 255).astype(np.uint8)
+                img = Image.fromarray(arr, mode="L")
+            elif array.shape[2] == 1:
+                # Grayscale image with shape [H, W, 1]
+                arr = (array.squeeze(2) * 255).astype(np.uint8)
+                img = Image.fromarray(arr, mode="L")
+            else:
+                raise ValueError(f"Unsupported array shape {array.shape}")
+        else:
+            raise ValueError(f"Unsupported array shape {array.shape}")
+
+        img.save(os.path.join(filepath, name))
+
+
 
     def save_vu_image(self, tensor: torch.Tensor, name: str):
         self.ncount += 1
@@ -967,3 +958,211 @@ class TEXTure:
         else :
             Image.fromarray(texture).save(save_path / f"step_{self.paint_step:02d}_{self.texturecount:03d}_{name}_texture.png")
 
+    def blend_texture_patches(self,
+        img1_tensor: torch.Tensor,
+        img2_tensor: torch.Tensor,
+        patch_mask_tensor: torch.Tensor,
+        smooth_kernel_size=15, # Kernel size for smoothing img2 high frequencies (odd number)
+        feather_kernel_size=31, # Kernel size for feathering the patch mask (odd number)
+        levels=6 # Pyramid levels
+        ):
+        """
+        Blends texture patches from img2 onto img1 naturally.
+        Args:
+            img1_tensor: Base image (e.g., full rabbit) [1, 3, H, W], float [0,1]
+            img2_tensor: Image with texture patches (and black elsewhere on rabbit) [1, 3, H, W], float [0,1]
+            patch_mask_tensor: Mask defining patches (1=patch, 0=rabbit, 1=background) [1, 1, H, W], float [0,1]
+            smooth_kernel_size: Size of Gaussian kernel to smooth img2.
+            feather_kernel_size: Size of Gaussian kernel to feather patch mask.
+            levels: Number of Laplacian pyramid levels.
+        Returns:
+            Blended image tensor [1, 3, H, W], float [0,1]
+        """
+        # --- Input Validation ---
+        if not (isinstance(img1_tensor, torch.Tensor) and
+                isinstance(img2_tensor, torch.Tensor) and
+                isinstance(patch_mask_tensor, torch.Tensor)):
+            raise TypeError("Inputs must be PyTorch tensors.")
+
+        if not (img1_tensor.ndim == 4 and img1_tensor.shape[0] == 1 and img1_tensor.shape[1] == 3 and
+                img2_tensor.ndim == 4 and img2_tensor.shape[0] == 1 and img2_tensor.shape[1] == 3 and
+                patch_mask_tensor.ndim == 4 and patch_mask_tensor.shape[0] == 1 and patch_mask_tensor.shape[1] == 1):
+            raise ValueError("Input tensor dimensions are incorrect. Expecting [1,3,H,W] for images, [1,1,H,W] for mask.")
+
+        if not (img1_tensor.shape[2:] == img2_tensor.shape[2:] == patch_mask_tensor.shape[2:]):
+            raise ValueError("Input tensors must have the same Height and Width.")
+
+        if not (smooth_kernel_size % 2 == 1 and feather_kernel_size % 2 == 1):
+            raise ValueError("Kernel sizes must be odd")
+
+        # --- Processing ---
+        # Use CPU and detach for NumPy conversion
+        device = img1_tensor.device # Remember original device
+        img1_tensor = img1_tensor.cpu().detach()
+        img2_tensor = img2_tensor.cpu().detach()
+        patch_mask_tensor = patch_mask_tensor.cpu().detach()
+
+
+        # 1. Preprocessing: Tensor to NumPy (HxWx3 or HxW, float32, 0-1)
+        img1_np = img1_tensor.squeeze(0).permute(1, 2, 0).numpy().astype(np.float32)
+        img2_np = img2_tensor.squeeze(0).permute(1, 2, 0).numpy().astype(np.float32)
+        # Mask needs special handling: HxW, float32, 0-1
+        patch_mask_raw_np = patch_mask_tensor.squeeze(0).squeeze(0).numpy().astype(np.float32)
+
+        H, W = img1_np.shape[:2]
+        print(f"NumPy shapes: img1={img1_np.shape}, img2={img2_np.shape}, patch_mask_raw={patch_mask_raw_np.shape}")
+
+        # 2. Smooth img2 to remove high frequencies
+        img2_smoothed_np = cv2.GaussianBlur(img2_np, (smooth_kernel_size, smooth_kernel_size), 0)
+        # Ensure result didn't go out of bounds (blurring can slightly exceed 0/1)
+        img2_smoothed_np = np.clip(img2_smoothed_np, 0, 1)
+        print(f"img2 smoothed shape: {img2_smoothed_np.shape}")
+
+        # 3. Prepare Blend Mask (Isolate Patches + Feather)
+        # 3a. Create silhouette mask (rabbit=1, background=0)
+        #     Assuming white background is approx 1.0 in all channels
+        # Use img1's shape to define the silhouette reliably
+        img1_gray = cv2.cvtColor(img1_np, cv2.COLOR_BGR2GRAY) # Or use any channel
+        # Threshold: Where image is NOT white (e.g., < 0.98), it's part of the rabbit
+        # Adjust threshold (0.98) if background isn't perfectly white (1.0)
+        silhouette_mask_np = (img1_gray < 0.98).astype(np.float32)
+        print(f"Silhouette mask shape: {silhouette_mask_np.shape}, min={silhouette_mask_np.min()}, max={silhouette_mask_np.max()}")
+
+        # 3b. Isolate patches (mask = 1 only for patches, 0 elsewhere)
+        #     Multiply raw patch mask (patch=1, rabbit=0, bg=1) by silhouette (rabbit=1, bg=0)
+        patch_mask_isolated_np = patch_mask_raw_np * silhouette_mask_np
+        print(f"Isolated patch mask shape: {patch_mask_isolated_np.shape}, min={patch_mask_isolated_np.min()}, max={patch_mask_isolated_np.max()}")
+        # Check if isolation worked (max should be <= 1)
+        if patch_mask_isolated_np.max() > 1.001: # Allow for slight floating point inaccuracies
+            print(f"Warning: Isolated patch mask max {patch_mask_isolated_np.max()} > 1.0, clipping.")
+            patch_mask_isolated_np = np.clip(patch_mask_isolated_np, 0, 1)
+
+
+        # 3c. Feather the isolated patch mask
+        patch_mask_feathered_np = cv2.GaussianBlur(patch_mask_isolated_np, (feather_kernel_size, feather_kernel_size), 0)
+        # Add channel dim: HxWx1
+        patch_mask_feathered_np = patch_mask_feathered_np[:, :, np.newaxis]
+        # Ensure mask stays in [0, 1] after blur
+        patch_mask_feathered_np = np.clip(patch_mask_feathered_np, 0, 1)
+        print(f"Feathered patch mask shape: {patch_mask_feathered_np.shape}, min={patch_mask_feathered_np.min()}, max={patch_mask_feathered_np.max()}")
+
+
+        # 4. Laplacian Blending
+        # --- Build Gaussian Pyramids ---
+        gpA = [img1_np] # Base image
+        gpB = [img2_smoothed_np] # Smoothed patch image
+        gpM = [patch_mask_feathered_np] # Feathered mask (1=use img2)
+
+        for i in range(levels):
+            # Check dimensions before pyrDown
+            if gpA[i].shape[0] < 2 or gpA[i].shape[1] < 2:
+                print(f"Stopping pyramid generation at level {i} due to small dimensions.")
+                levels = i # Adjust effective levels
+                break
+
+            gpA.append(cv2.pyrDown(gpA[i]))
+            gpB.append(cv2.pyrDown(gpB[i]))
+
+            # Need to handle mask pyrDown carefully
+            prev_mask = gpM[i]
+            next_mask = cv2.pyrDown(prev_mask)
+            if next_mask.ndim == 2:
+                next_mask = next_mask[:, :, np.newaxis]
+
+            # Handle potential shape mismatch if pyrDown rounds differently
+            expected_h, expected_w = gpA[-1].shape[:2]
+            current_h, current_w = next_mask.shape[:2]
+            if current_h != expected_h or current_w != expected_w:
+                print(f"Resizing mask at level {i+1} from {next_mask.shape[:2]} to {(expected_h, expected_w)}")
+                # Resize needs target size as (width, height)
+                next_mask = cv2.resize(next_mask, (expected_w, expected_h), interpolation=cv2.INTER_LINEAR)
+                if next_mask.ndim == 2: next_mask = next_mask[:,:,np.newaxis] # Add dim back if lost
+
+            gpM.append(next_mask)
+
+        effective_levels = len(gpA) - 1 # Actual levels generated
+
+        # --- Build Laplacian Pyramids ---
+        lpA = []
+        lpB = []
+        for i in range(effective_levels):
+            target_h, target_w = gpA[i].shape[:2]
+            try:
+                GE_A = cv2.pyrUp(gpA[i+1], dstsize=(target_w, target_h))
+                GE_B = cv2.pyrUp(gpB[i+1], dstsize=(target_w, target_h))
+            except cv2.error as e:
+                print(f"pyrUp failed at level {i}. Shapes: gpA[i]={gpA[i].shape}, gpA[i+1]={gpA[i+1].shape}. Error: {e}")
+                # Fallback to resize if pyrUp constraint fails
+                GE_A = cv2.resize(gpA[i+1], (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                GE_B = cv2.resize(gpB[i+1], (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+            # Ensure shapes match exactly after potential resize/pyrUp issues
+            if GE_A.shape != gpA[i].shape: GE_A = cv2.resize(GE_A, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+            if GE_B.shape != gpB[i].shape: GE_B = cv2.resize(GE_B, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+            L_A = cv2.subtract(gpA[i], GE_A)
+            L_B = cv2.subtract(gpB[i], GE_B)
+            lpA.append(L_A)
+            lpB.append(L_B)
+
+        # Add the coarsest Gaussian level
+        lpA.append(gpA[effective_levels])
+        lpB.append(gpB[effective_levels])
+
+        # --- Blend Laplacian Pyramids ---
+        LS = []
+        print(f"\n--- Blending {effective_levels+1} Laplacian Levels ---")
+        for i in range(effective_levels + 1):
+            la = lpA[i]
+            lb = lpB[i]
+            gm = gpM[i] # Mask corresponds directly to level i
+
+            # Ensure mask is broadcastable (e.g., HxWx1 -> HxWx3)
+            if gm.ndim == 3 and gm.shape[2] == 1 and la.ndim == 3 and la.shape[2] == 3:
+                gm = np.tile(gm, (1, 1, 3))
+            # Ensure spatial dimensions match, resize mask if necessary (shouldn't happen ideally)
+            elif gm.shape[:2] != la.shape[:2]:
+                print(f"Warning: Resizing mask at blend level {i} from {gm.shape[:2]} to {la.shape[:2]}")
+                gm = cv2.resize(gm, (la.shape[1], la.shape[0]), interpolation=cv2.INTER_LINEAR)
+                if gm.ndim == 2: gm = gm[:,:,np.newaxis]
+                if gm.ndim == 3 and gm.shape[2] == 1 and la.ndim == 3 and la.shape[2] == 3: gm = np.tile(gm, (1,1,3))
+
+
+            # Standard formula: Use img1 (la) where mask=0, use smoothed img2 (lb) where mask=1
+            ls = la * (1.0 - gm) + lb * gm
+            LS.append(ls)
+
+        # --- Reconstruct ---
+        blended_np = LS[effective_levels] # Start with coarsest level
+        for i in range(effective_levels - 1, -1, -1): # Loop down to finest level index 0
+            target_h, target_w = LS[i].shape[:2]
+            try:
+                upsampled_level = cv2.pyrUp(blended_np, dstsize=(target_w, target_h))
+            except cv2.error as e:
+                print(f"pyrUp failed during reconstruction at level {i}. Current shape: {blended_np.shape}, Target shape: {LS[i].shape[:2]}. Error: {e}")
+                # Fallback to resize
+                upsampled_level = cv2.resize(blended_np, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+            # Ensure exact shape match before adding
+            if upsampled_level.shape != LS[i].shape:
+                print(f"Resizing upsampled level at reconstruction level {i} from {upsampled_level.shape[:2]} to {LS[i].shape[:2]}")
+                upsampled_level = cv2.resize(upsampled_level, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+            blended_np = cv2.add(upsampled_level, LS[i])
+
+        # Final clipping
+        blended_np = np.clip(blended_np, 0, 1)
+        print(f"\nFinal Blended NumPy shape: {blended_np.shape}")
+
+        # 5. Postprocessing: NumPy to Tensor
+        # Ensure output dtype matches input tensor dtype if needed
+        output_dtype = img1_tensor.dtype
+        blended_tensor_out = torch.from_numpy(blended_np).permute(2, 0, 1).unsqueeze(0).to(dtype=output_dtype, device=device)
+
+
+        # Optional: Apply silhouette mask again for clean background if needed
+        # silhouette_mask_np_hwc = silhouette_mask_np[:, :, np.newaxis] # Ensure HxWx1
+        # silhouette_mask_tensor = torch.from_numpy(silhouette_mask_np_hwc).permute(2, 0, 1).unsqueeze(0).to(dtype=output_dtype, device=device) # Shape [1,1,H,W]
+        # black_background = torch.zeros_like(blended_tensor_out, device=device)
+        # blended_tensor_out = blended_tensor_out * silhouette_mask_tensor + black_background * (1.0 - silhouette_mask_tensor)
+        return blended_tensor_out
