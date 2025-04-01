@@ -763,64 +763,64 @@ class TEXTure:
         combined_mask = torch.where(masked_part_3ch.bool(), rgb_output, background)
         
 
-        # Optimizer For Mask
-        optimizer = torch.optim.Adam(self.mask_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
-        if self.paint_step < 2:
-            for i in tqdm(range(200), desc='fitting mesh colors'):
+        # # Optimizer For Mask
+        # optimizer = torch.optim.Adam(self.mask_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
+        # if self.paint_step < 2:
+        #     for i in tqdm(range(200), desc='fitting mesh colors'):
                 
-                optimizer.zero_grad()
-                '''
-                1. loss(rgb_output, rgb_render_except_mask_part)
-                2. loss(rgb_output_mask part, median_filter(rgb_render_mask_part, prev_mask_part_rgb_output))
-                '''
-                mask_filter = self.mask_model.render( background=background,
-                                                    render_cache=render_cache,
-                                                    )
-                mask_render = mask_filter['image']
-                if i == 0:
-                    self.prev_mask = mask_render.clone()
-                    color_tensor = torch.tensor(self.mask_model.default_color, dtype=torch.float32, device=self.device).view(1, 3, 1, 1)
-                    color_image = color_tensor.expand(1, 3, 1200, 1200)
-                    self.save_tensor_image(color_image, 'mask_filtering')
+        #         optimizer.zero_grad()
+        #         '''
+        #         1. loss(rgb_output, rgb_render_except_mask_part)
+        #         2. loss(rgb_output_mask part, median_filter(rgb_render_mask_part, prev_mask_part_rgb_output))
+        #         '''
+        #         mask_filter = self.mask_model.render( background=background,
+        #                                             render_cache=render_cache,
+        #                                             )
+        #         mask_render = mask_filter['image']
+        #         if i == 0:
+        #             self.prev_mask = mask_render.clone()
+        #             color_tensor = torch.tensor(self.mask_model.default_color, dtype=torch.float32, device=self.device).view(1, 3, 1, 1)
+        #             color_image = color_tensor.expand(1, 3, 1200, 1200)
+        #             self.save_tensor_image(color_image, 'mask_filtering')
                     
-                    self.save_tensor_image(mask_render, 'mask_render(학습)')
-                    self.save_tensor_image(combined_mask, 'mask_output(BaseImage)')
+        #             self.save_tensor_image(mask_render, 'mask_render(학습)')
+        #             self.save_tensor_image(combined_mask, 'mask_output(BaseImage)')
     
-                mask = render_update_mask.flatten()
-                mask_render_pred = mask_render.reshape(1, mask_render.shape[1], -1)[:, :, mask > 0]
-                mask_output_target = combined_mask.reshape(1, combined_mask.shape[1], -1)[:, :, mask > 0]
-                mask_filtering_mask = mask[mask > 0]
-                loss_m = ((mask_render_pred - mask_output_target.detach().float()).pow(2) * mask_filtering_mask).mean()
+        #         mask = render_update_mask.flatten()
+        #         mask_render_pred = mask_render.reshape(1, mask_render.shape[1], -1)[:, :, mask > 0]
+        #         mask_output_target = combined_mask.reshape(1, combined_mask.shape[1], -1)[:, :, mask > 0]
+        #         mask_filtering_mask = mask[mask > 0]
+        #         loss_m = ((mask_render_pred - mask_output_target.detach().float()).pow(2) * mask_filtering_mask).mean()
                 
-                loss_m.backward()
-                optimizer.step()
+        #         loss_m.backward()
+        #         optimizer.step()
 
-            diff = torch.abs(self.prev_mask - color_image)  # shape: [1, 3, H, W]
-            self.save_tensor_image(self.prev_mask, 'prev_mask')
-            self.save_tensor_image(color_image, 'color_image')
-            self.save_tensor_image(diff, '1. diff')
+        #     diff = torch.abs(self.prev_mask - color_image)  # shape: [1, 3, H, W]
+        #     self.save_tensor_image(self.prev_mask, 'prev_mask')
+        #     self.save_tensor_image(color_image, 'color_image')
+        #     self.save_tensor_image(diff, '1. diff')
 
-            mask_non_bg = (diff > 0.005).float().sum(dim=1, keepdim=True) > 0
-            mask_non_bg = mask_non_bg.float()
-            self.save_tensor_image(mask_non_bg, '2. mask_non_bg')
+        #     mask_non_bg = (diff > 0.005).float().sum(dim=1, keepdim=True) > 0
+        #     mask_non_bg = mask_non_bg.float()
+        #     self.save_tensor_image(mask_non_bg, '2. mask_non_bg')
 
-            kernel = torch.ones(9, 9, device=mask_non_bg.device)
-            eroded_mask = kornia.morphology.erosion(mask_non_bg, kernel)
-            self.save_tensor_image(eroded_mask, '3. eroded_mask')
-            eroded_mask = kornia.filters.median_blur(eroded_mask, (5, 5))
-            self.save_tensor_image(eroded_mask, '4. eroded_mask_filtered')
-            extracted_foreground = self.prev_mask * eroded_mask
-            self.save_tensor_image(extracted_foreground, '5. extracted_foreground')
+        #     kernel = torch.ones(9, 9, device=mask_non_bg.device)
+        #     eroded_mask = kornia.morphology.erosion(mask_non_bg, kernel)
+        #     self.save_tensor_image(eroded_mask, '3. eroded_mask')
+        #     eroded_mask = kornia.filters.median_blur(eroded_mask, (5, 5))
+        #     self.save_tensor_image(eroded_mask, '4. eroded_mask_filtered')
+        #     extracted_foreground = self.prev_mask * eroded_mask
+        #     self.save_tensor_image(extracted_foreground, '5. extracted_foreground')
 
-            # extracted_foreground_filtered = extracted_foreground
-            extracted_foreground_filtered = kornia.filters.median_blur(extracted_foreground, (5, 5))
-            self.save_tensor_image(extracted_foreground_filtered, '6. extracted_foreground_filtered')
+        #     # extracted_foreground_filtered = extracted_foreground
+        #     extracted_foreground_filtered = kornia.filters.median_blur(extracted_foreground, (5, 5))
+        #     self.save_tensor_image(extracted_foreground_filtered, '6. extracted_foreground_filtered')
 
-            # combined = extracted_foreground_filtered * eroded_mask * 0.5 + rgb_output * (1 - eroded_mask * 0.5)
-            combined = extracted_foreground_filtered * eroded_mask + rgb_output * (1 - eroded_mask)
-            self.save_tensor_image(combined, '6. combined')
+        #     # combined = extracted_foreground_filtered * eroded_mask * 0.5 + rgb_output * (1 - eroded_mask * 0.5)
+        #     combined = extracted_foreground_filtered * eroded_mask + rgb_output * (1 - eroded_mask)
+        #     self.save_tensor_image(combined, '6. combined')
 
-            rgb_output = combined
+        #     rgb_output = combined
 
         #Adam optimizer for updating model parameter
         optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
@@ -831,9 +831,33 @@ class TEXTure:
                                              render_cache=render_cache,
                                              )
             rgb_render = outputs['image']
-            if i == 150:
-                self.save_vu_image(rgb_render, 'rgb_render(학습)')
-                self.save_vu_image(rgb_output, 'rgb_output(BaseImage)')
+            if i == 0:
+                self.prev_mask = rgb_render.clone()
+                color_tensor = torch.tensor(self.mesh_model.default_color, dtype=torch.float32, device=self.device).view(1, 3, 1, 1)
+                color_image = color_tensor.expand(1, 3, 1200, 1200)
+                self.save_tensor_image(color_image, 'mask_filtering')
+                self.save_tensor_image(rgb_render, 'rgb_render_mask(학습)')
+                self.save_tensor_image(combined_mask, 'rgb_output_mask(BaseImage)')
+
+                diff = torch.abs(self.prev_mask - color_image)  # shape: [1, 3, H, W]
+                self.save_tensor_image(diff, '1. diff')
+                mask_non_bg = (diff > 0.005).float().sum(dim=1, keepdim=True) > 0
+                mask_non_bg = mask_non_bg.float()
+                self.save_tensor_image(mask_non_bg, '2. mask_non_bg') # Mask
+                kernel = torch.ones(9, 9, device=mask_non_bg.device)
+                eroded_mask = kornia.morphology.erosion(mask_non_bg, kernel)
+                self.save_tensor_image(eroded_mask, '3. eroded_mask')
+                eroded_mask = kornia.filters.median_blur(eroded_mask, (5, 5))
+                self.save_tensor_image(eroded_mask, '4. eroded_mask_filtered')
+                extracted_foreground = self.prev_mask * eroded_mask
+                self.save_tensor_image(extracted_foreground, '5. extracted_foreground')
+                # extracted_foreground_filtered = extracted_foreground
+                extracted_foreground_filtered = kornia.filters.median_blur(extracted_foreground, (5, 5))
+                self.save_tensor_image(extracted_foreground_filtered, '6. extracted_foreground_filtered')
+                # combined = extracted_foreground_filtered * eroded_mask * 0.5 + rgb_output * (1 - eroded_mask * 0.5)
+                combined = extracted_foreground_filtered * eroded_mask + rgb_output * (1 - eroded_mask)
+                self.save_tensor_image(combined, '6. combined')
+                rgb_output = combined
                 
             mask = render_update_mask.flatten()
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
