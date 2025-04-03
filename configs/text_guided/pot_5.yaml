@@ -1,0 +1,8 @@
+log:
+  exp_name: pot_5
+guide:
+  text: A metallic pot with a brushed copper finish, {} view
+  append_direction: true
+  shape_path: shapes/pot.obj
+optim:
+  seed: 3

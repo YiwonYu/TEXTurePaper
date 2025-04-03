@@ -1,0 +1,8 @@
+log:
+  exp_name: doughnut_3
+guide:
+  text: A doughnut covered in shiny metallic gold with a reflective finish, {} view
+  append_direction: true
+  shape_path: shapes/doughnut.obj
+optim:
+  seed: 3

@@ -1,0 +1,8 @@
+log:
+  exp_name: doughnut_1
+guide:
+  text: A doughnut with a glossy chocolate glaze and colorful sprinkles, {} view
+  append_direction: true
+  shape_path: shapes/doughnut.obj
+optim:
+  seed: 3

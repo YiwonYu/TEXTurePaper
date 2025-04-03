@@ -1,0 +1,8 @@
+log:
+  exp_name: horse_4
+guide:
+  text: A horse covered in metallic armor, with intricate engravings and gold highlights, {} view
+  append_direction: true
+  shape_path: shapes/horse.obj
+optim:
+  seed: 3

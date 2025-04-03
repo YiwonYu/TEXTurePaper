@@ -1,0 +1,8 @@
+log:
+  exp_name: person_3
+guide:
+  text: A person with a cybernetic body and glowing blue circuits, {} view
+  append_direction: true
+  shape_path: shapes/person.obj
+optim:
+  seed: 3

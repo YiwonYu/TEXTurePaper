@@ -1,0 +1,8 @@
+log:
+  exp_name: basketball_2
+guide:
+  text: A basketball with a glossy, polished marble finish in black and white, {} view
+  append_direction: true
+  shape_path: shapes/basketball.obj
+optim:
+  seed: 3

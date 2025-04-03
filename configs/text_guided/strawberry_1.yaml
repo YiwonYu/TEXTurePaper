@@ -1,0 +1,8 @@
+log:
+  exp_name: strawberry_1
+guide:
+  text: A strawberry with a bright red surface and tiny yellow seeds, {} view
+  append_direction: true
+  shape_path: shapes/strawberry.obj
+optim:
+  seed: 3

@@ -1,0 +1,8 @@
+log:
+  exp_name: cat_3
+guide:
+  text: A cat with a shiny metallic texture, reflecting light like polished silver, {} view
+  append_direction: true
+  shape_path: shapes/cat.obj
+optim:
+  seed: 3

@@ -1,0 +1,8 @@
+log:
+  exp_name: basketball_4
+guide:
+  text: A futuristic basketball with a glowing neon grid texture in shades of blue, {} view
+  append_direction: true
+  shape_path: shapes/basketball.obj
+optim:
+  seed: 3

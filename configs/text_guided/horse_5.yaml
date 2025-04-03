@@ -1,0 +1,8 @@
+log:
+  exp_name: horse_5
+guide:
+  text: A horse with a glowing, ethereal texture, as if made of pure light, {} view
+  append_direction: true
+  shape_path: shapes/horse.obj
+optim:
+  seed: 3

@@ -1,0 +1,8 @@
+log:
+  exp_name: fish_4
+guide:
+  text: A fish covered in rough, volcanic rock texture with glowing orange cracks, {} view
+  append_direction: true
+  shape_path: shapes/fish.obj
+optim:
+  seed: 3

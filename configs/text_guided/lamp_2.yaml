@@ -1,0 +1,8 @@
+log:
+  exp_name: lamp_2
+guide:
+  text: A lamp made of shiny, polished brass with intricate engravings, {} view
+  append_direction: true
+  shape_path: shapes/lamp.obj
+optim:
+  seed: 3

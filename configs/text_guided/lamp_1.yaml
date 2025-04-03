@@ -1,0 +1,8 @@
+log:
+  exp_name: lamp_1
+guide:
+  text: A lamp with a frosted glass shade, softly diffusing warm light, {} view
+  append_direction: true
+  shape_path: shapes/lamp.obj
+optim:
+  seed: 3

@@ -1,0 +1,8 @@
+log:
+  exp_name: strawberry_2
+guide:
+  text: A frosted strawberry with a sugary coating, {} view
+  append_direction: true
+  shape_path: shapes/strawberry.obj
+optim:
+  seed: 3

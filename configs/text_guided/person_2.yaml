@@ -1,0 +1,8 @@
+log:
+  exp_name: person_2
+guide:
+  text: A person with cartoon-style smooth skin and vibrant tones, {} view
+  append_direction: true
+  shape_path: shapes/person.obj
+optim:
+  seed: 3

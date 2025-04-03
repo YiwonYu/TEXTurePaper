@@ -1,17 +1,8 @@
 log:
   exp_name: rabbit_2
 guide:
-  text: "A rabbit with pastel pink and white fur, face front {} view"
-  # diffusion_name: stabilityai/stable-diffusion-2-depth
-  diffusion_name: diffusers/controlnet-depth-sdxl-1.0
-  diffusion_name: SDXL
-  shape_scale: 0.6
-  append_direction: True
+  text: A rabbit with pastel pink and white fur, {} view
+  append_direction: true
   shape_path: shapes/rabbit.obj
-  texture_resolution: 1024
-  guidance_scale: 7.5
-  texture_interpolation_mode: 'bilinear'
 optim:
   seed: 3
-render:
-  front_offset: 0

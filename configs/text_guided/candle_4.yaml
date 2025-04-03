@@ -1,0 +1,8 @@
+log:
+  exp_name: candle_4
+guide:
+  text: A candle made of polished obsidian, shiny and reflective in deep black, {} view
+  append_direction: true
+  shape_path: shapes/candle.obj
+optim:
+  seed: 3

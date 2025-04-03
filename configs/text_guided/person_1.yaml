@@ -1,0 +1,8 @@
+log:
+  exp_name: person_1
+guide:
+  text: A person with realistic skin texture featuring freckles and slight blemishes, {} view
+  append_direction: true
+  shape_path: shapes/person.obj
+optim:
+  seed: 3

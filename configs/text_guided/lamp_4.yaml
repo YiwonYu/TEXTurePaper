@@ -1,0 +1,8 @@
+log:
+  exp_name: lamp_4
+guide:
+  text: A lamp with a glowing, futuristic neon texture, emitting blue and green light, {} view
+  append_direction: true
+  shape_path: shapes/lamp.obj
+optim:
+  seed: 3

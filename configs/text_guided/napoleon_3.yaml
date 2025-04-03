@@ -1,0 +1,8 @@
+log:
+  exp_name: napoleon_3
+guide:
+  text: Napoleon as a stone statue with cracks and ivy details, {} view
+  append_direction: true
+  shape_path: shapes/napoleon.obj
+optim:
+  seed: 3

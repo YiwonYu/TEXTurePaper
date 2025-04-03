@@ -1,0 +1,8 @@
+log:
+  exp_name: cow_2
+guide:
+  text: A cow made of rough burlap fabric, with visible stitching details, {} view
+  append_direction: true
+  shape_path: shapes/cow.obj
+optim:
+  seed: 3

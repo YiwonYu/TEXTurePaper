@@ -1,0 +1,8 @@
+log:
+  exp_name: basketball_3
+guide:
+  text: A basketball made of rough sandpaper-like material with uneven patterns, {} view
+  append_direction: true
+  shape_path: shapes/basketball.obj
+optim:
+  seed: 3

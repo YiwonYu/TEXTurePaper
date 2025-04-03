@@ -1,0 +1,8 @@
+log:
+  exp_name: horse_1
+guide:
+  text: A horse with a sleek, shiny coat in shades of deep brown and black, {} view
+  append_direction: true
+  shape_path: shapes/horse.obj
+optim:
+  seed: 3

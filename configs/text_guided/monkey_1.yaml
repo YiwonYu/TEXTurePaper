@@ -1,0 +1,8 @@
+log:
+  exp_name: monkey_1
+guide:
+  text: A monkey with realistic fur texture featuring brown and golden highlights, {} view
+  append_direction: true
+  shape_path: shapes/monkey.obj
+optim:
+  seed: 3

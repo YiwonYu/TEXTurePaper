@@ -1,0 +1,15 @@
+log:
+  exp_name: nascar_2
+guide:
+  text: A NASCAR car with weathered surfaces, scratches, and dirt marks, {} view
+  diffusion_name: stabilityai/stable-diffusion-2-depth
+  shape_scale: 0.6
+  append_direction: true
+  shape_path: shapes/nascar.obj
+  texture_resolution: 1024
+  guidance_scale: 10
+  texture_interpolation_mode: bilinear
+optim:
+  seed: 2
+render:
+  front_offset: 0

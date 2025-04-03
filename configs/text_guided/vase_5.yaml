@@ -1,0 +1,8 @@
+log:
+  exp_name: vase_5
+guide:
+  text: A vase painted with bright abstract designs, {} view
+  append_direction: true
+  shape_path: shapes/vase.obj
+optim:
+  seed: 3

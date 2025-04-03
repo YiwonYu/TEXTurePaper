@@ -1,0 +1,8 @@
+log:
+  exp_name: candle_5
+guide:
+  text: A candle covered in a glittery, sparkling texture, like it's coated with gold dust, {} view
+  append_direction: true
+  shape_path: shapes/candle.obj
+optim:
+  seed: 3

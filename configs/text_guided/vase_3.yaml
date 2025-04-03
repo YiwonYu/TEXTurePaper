@@ -1,0 +1,8 @@
+log:
+  exp_name: vase_3
+guide:
+  text: A vase made of glossy glass with a transparent gradient, {} view
+  append_direction: true
+  shape_path: shapes/vase.obj
+optim:
+  seed: 3

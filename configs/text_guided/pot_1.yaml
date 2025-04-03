@@ -1,0 +1,8 @@
+log:
+  exp_name: pot_1
+guide:
+  text: A ceramic pot with blue and white floral patterns, {} view
+  append_direction: true
+  shape_path: shapes/pot.obj
+optim:
+  seed: 3

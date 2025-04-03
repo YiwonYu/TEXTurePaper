@@ -1,0 +1,8 @@
+log:
+  exp_name: strawberry_5
+guide:
+  text: A chocolate-dipped strawberry with a shiny coating, {} view
+  append_direction: true
+  shape_path: shapes/strawberry.obj
+optim:
+  seed: 3

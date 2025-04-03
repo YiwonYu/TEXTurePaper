@@ -1,0 +1,8 @@
+log:
+  exp_name: apple_1
+guide:
+  text: A shiny red apple with a polished, reflective surface like ceramic, {} view
+  append_direction: true
+  shape_path: shapes/apple.obj
+optim:
+  seed: 3

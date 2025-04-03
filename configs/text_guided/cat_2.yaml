@@ -1,0 +1,8 @@
+log:
+  exp_name: cat_2
+guide:
+  text: A cat made of smooth, glossy black marble with subtle white veining, {} view
+  append_direction: true
+  shape_path: shapes/cat.obj
+optim:
+  seed: 3

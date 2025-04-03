@@ -1,0 +1,8 @@
+log:
+  exp_name: monkey_3
+guide:
+  text: A monkey painted with tribal red and white patterns, {} view
+  append_direction: true
+  shape_path: shapes/monkey.obj
+optim:
+  seed: 3

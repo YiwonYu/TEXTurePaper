@@ -1,0 +1,8 @@
+log:
+  exp_name: cat_4
+guide:
+  text: A cat covered in a woven fabric texture, like a hand-knitted toy, {} view
+  append_direction: true
+  shape_path: shapes/cat.obj
+optim:
+  seed: 3

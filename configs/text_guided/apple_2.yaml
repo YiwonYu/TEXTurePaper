@@ -1,0 +1,8 @@
+log:
+  exp_name: apple_2
+guide:
+  text: An apple covered in a soft velvet texture with a matte finish, {} view
+  append_direction: true
+  shape_path: shapes/apple.obj
+optim:
+  seed: 3

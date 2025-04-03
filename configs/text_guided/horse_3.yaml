@@ -1,0 +1,8 @@
+log:
+  exp_name: horse_3
+guide:
+  text: A horse with a velvety texture, soft to the touch and rich in color, {} view
+  append_direction: true
+  shape_path: shapes/horse.obj
+optim:
+  seed: 3

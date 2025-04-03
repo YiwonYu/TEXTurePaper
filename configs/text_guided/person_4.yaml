@@ -1,0 +1,8 @@
+log:
+  exp_name: person_4
+guide:
+  text: A person carved from stone with cracks and weathering, {} view
+  append_direction: true
+  shape_path: shapes/person.obj
+optim:
+  seed: 3

@@ -1,0 +1,8 @@
+log:
+  exp_name: shoe_3
+guide:
+  text: A shoe with a shiny patent leather texture and a black gloss finish, {} view
+  append_direction: true
+  shape_path: shapes/shoe.obj
+optim:
+  seed: 3

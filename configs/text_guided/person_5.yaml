@@ -1,0 +1,8 @@
+log:
+  exp_name: person_5
+guide:
+  text: A person as a golden sculpture with polished reflective surfaces, {} view
+  append_direction: true
+  shape_path: shapes/person.obj
+optim:
+  seed: 3

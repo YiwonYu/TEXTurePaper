@@ -1,0 +1,8 @@
+log:
+  exp_name: bunny_4
+guide:
+  text: A bunny with a soft, velvety texture and subtle pastel colors, {} view
+  append_direction: true
+  shape_path: shapes/bunny.obj
+optim:
+  seed: 3

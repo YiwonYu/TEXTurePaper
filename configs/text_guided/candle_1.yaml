@@ -1,0 +1,8 @@
+log:
+  exp_name: candle_1
+guide:
+  text: A candle with a glossy, melted wax texture in shades of red and orange, {} view
+  append_direction: true
+  shape_path: shapes/candle.obj
+optim:
+  seed: 3

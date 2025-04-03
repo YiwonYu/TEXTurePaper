@@ -1,0 +1,8 @@
+log:
+  exp_name: turtle_5
+guide:
+  text: A turtle with a golden shell engraved with decorative patterns, {} view
+  append_direction: true
+  shape_path: shapes/turtle.obj
+optim:
+  seed: 3

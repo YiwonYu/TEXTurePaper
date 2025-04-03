@@ -1,0 +1,8 @@
+log:
+  exp_name: turtle_2
+guide:
+  text: A turtle with a vibrant green cartoon-style shell, {} view
+  append_direction: true
+  shape_path: shapes/turtle.obj
+optim:
+  seed: 3

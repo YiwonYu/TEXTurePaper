@@ -1,0 +1,8 @@
+log:
+  exp_name: doughnut_2
+guide:
+  text: A doughnut made of fluffy, spongy material, like a real baked good, {} view
+  append_direction: true
+  shape_path: shapes/doughnut.obj
+optim:
+  seed: 3

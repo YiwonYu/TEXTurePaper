@@ -1,0 +1,8 @@
+log:
+  exp_name: candle_2
+guide:
+  text: A candle covered in a frosted glass texture, with light softly diffusing through it, {} view
+  append_direction: true
+  shape_path: shapes/candle.obj
+optim:
+  seed: 3

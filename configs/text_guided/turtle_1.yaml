@@ -1,0 +1,8 @@
+log:
+  exp_name: turtle_1
+guide:
+  text: A turtle with a realistic shell featuring green and brown hexagonal patterns, {} view
+  append_direction: true
+  shape_path: shapes/turtle.obj
+optim:
+  seed: 3
