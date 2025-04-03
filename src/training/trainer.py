@@ -791,10 +791,11 @@ class TEXTure:
                 self.save_tensor_image(extracted_with_mask_black, '3. extracted_with_mask_black') # Extracted Foreground
                 extracted_with_mask = mask_non_bg * self.prev_mask + (1 - mask_non_bg) * 1.0
                 self.save_tensor_image(extracted_with_mask, '4. extracted_with_mask_white') # Extracted Foreground
-                # -------------------------------Laplacian Pyramid--------------------------------
+                # -------------------------------BLENDING--------------------------------
                 self.save_tensor_image(rgb_output, '3. img_1')
                 self.save_tensor_image(extracted_with_mask, '4. img_2')
-                blended_texture = self.blend_texture_patches(rgb_output, extracted_with_mask, mask_non_bg)
+                # blended_texture = self.blend_texture_patches(rgb_output, extracted_with_mask, mask_non_bg)
+                blended_texture = self.alpha_blend_texture(rgb_output, extracted_with_mask, mask_non_bg)
                 self.save_tensor_image(blended_texture, '5. blended_texture')
                 # --------------------------------------------------------------------------------
                 # kernel = torch.ones(9, 9, device=mask_non_bg.device)
@@ -811,10 +812,16 @@ class TEXTure:
                 # combined = extracted_foreground_filtered * eroded_mask + rgb_output * (1 - eroded_mask)
                 # self.save_tensor_image(combined, '6. combined')
                 # rgb_output = combined
-                rgb_output = blended_texture.to(self.device)
+                # --------------------------------------------------------------------------------
 
+                # rgb_output = blended_texture.to(self.device)
+            
             mask = render_update_mask.flatten()
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
+            if i == 100:
+                KERNEL_SIZE = (3, 3)
+                rgb_render = kornia.filters.median_blur(rgb_render, KERNEL_SIZE)
+
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
             masked_mask = mask[mask > 0]
 
@@ -1165,4 +1172,81 @@ class TEXTure:
         # silhouette_mask_tensor = torch.from_numpy(silhouette_mask_np_hwc).permute(2, 0, 1).unsqueeze(0).to(dtype=output_dtype, device=device) # Shape [1,1,H,W]
         # black_background = torch.zeros_like(blended_tensor_out, device=device)
         # blended_tensor_out = blended_tensor_out * silhouette_mask_tensor + black_background * (1.0 - silhouette_mask_tensor)
+        return blended_tensor_out
+    
+    def alpha_blend_texture(
+            self,
+            img1_tensor: "torch.Tensor", # Type hint requires torch
+            img2_tensor: "torch.Tensor", # Type hint requires torch
+            patch_mask_tensor: "torch.Tensor", # Type hint requires torch
+            blend_weight=0.5, # Weight/Opacity of img2 texture (0.0 to 1.0)
+            feather_kernel_size=31 # Kernel size for feathering the patch mask (odd number)
+        ):
+        """
+        Adds texture from img2 onto img1 using alpha blending.
+        Args:
+            img1_tensor: Base image [1, 3, H, W], float [0,1]
+            img2_tensor: Texture image (patches=texture, rabbit=white, bg=white) [1, 3, H, W], float [0,1]
+            patch_mask_tensor: Mask (1=patch, 0=rabbit, 1=background) [1, 1, H, W], float [0,1]
+            blend_weight: How strongly to blend img2's patches (0=img1 only, 1=img2 replaces img1 in patches).
+            feather_kernel_size: Size of Gaussian kernel to feather patch mask edges.
+        Returns:
+            Blended image tensor [1, 3, H, W], float [0,1]
+        """
+        # --- Input Validation ---
+        # (Add tensor type/shape/dimension checks as in previous functions if running with PyTorch)
+        if not (0.0 <= blend_weight <= 1.0):
+            raise ValueError("blend_weight must be between 0.0 and 1.0")
+        if not (feather_kernel_size % 2 == 1):
+            raise ValueError("feather_kernel_size must be odd")
+
+        # --- Processing ---
+        # Use CPU and detach for NumPy conversion
+        # device = img1_tensor.device # Remember original device if using torch
+        img1_tensor_cpu = img1_tensor.cpu().detach()
+        img2_tensor_cpu = img2_tensor.cpu().detach()
+        patch_mask_tensor_cpu = patch_mask_tensor.cpu().detach()
+
+        # 1. Preprocessing: Tensor to NumPy
+        img1_np = img1_tensor_cpu.squeeze(0).permute(1, 2, 0).numpy().astype(np.float32)
+        img2_np = img2_tensor_cpu.squeeze(0).permute(1, 2, 0).numpy().astype(np.float32)
+        patch_mask_raw_np = patch_mask_tensor_cpu.squeeze(0).squeeze(0).numpy().astype(np.float32)
+        H, W = img1_np.shape[:2]
+        print(f"NumPy shapes: img1={img1_np.shape}, img2={img2_np.shape}, patch_mask_raw={patch_mask_raw_np.shape}")
+
+        # 2. Prepare Alpha Mask
+        # 2a. Create silhouette mask (rabbit=1, background=0) from img1
+        img1_gray = cv2.cvtColor(img1_np, cv2.COLOR_BGR2GRAY)
+        silhouette_mask_np = (img1_gray < 0.98).astype(np.float32) # Adjust 0.98 if needed
+
+        # 2b. Isolate patches (mask = 1 only for patches, 0 elsewhere)
+        patch_mask_isolated_np = patch_mask_raw_np * silhouette_mask_np
+        if patch_mask_isolated_np.max() > 1.001:
+            patch_mask_isolated_np = np.clip(patch_mask_isolated_np, 0, 1)
+        print(f"Isolated patch mask shape: {patch_mask_isolated_np.shape}, min={patch_mask_isolated_np.min()}, max={patch_mask_isolated_np.max()}")
+
+        # 2c. Feather the isolated patch mask
+        patch_mask_feathered_np = cv2.GaussianBlur(patch_mask_isolated_np, (feather_kernel_size, feather_kernel_size), 0)
+        patch_mask_feathered_np = np.clip(patch_mask_feathered_np, 0, 1)
+        print(f"Feathered patch mask shape: {patch_mask_feathered_np.shape}, min={patch_mask_feathered_np.min()}, max={patch_mask_feathered_np.max()}")
+
+        # 2d. Scale by blend_weight and prepare for broadcasting (add channel dim HxWx1 -> HxWx3)
+        alpha_np = patch_mask_feathered_np * blend_weight
+        alpha_np_3channel = np.tile(alpha_np[:, :, np.newaxis], (1, 1, 3)) # Create HxWx3 alpha mask
+        print(f"Final Alpha mask shape: {alpha_np_3channel.shape}, min={alpha_np_3channel.min()}, max={alpha_np_3channel.max()}")
+
+
+        # 3. Alpha Blend
+        # Result = img1 * (1 - alpha) + img2 * alpha
+        blended_np = img1_np * (1.0 - alpha_np_3channel) + img2_np * alpha_np_3channel
+
+        # 4. Clip
+        blended_np = np.clip(blended_np, 0, 1)
+        print(f"\nFinal Blended NumPy shape: {blended_np.shape}")
+
+        # 5. Postprocessing: NumPy to Tensor
+        output_dtype = img1_tensor.dtype # Match input dtype
+        blended_tensor_out = torch.from_numpy(blended_np).permute(2, 0, 1).unsqueeze(0).to(dtype=output_dtype, device=self.device)
+
+        # --- Since torch is not available, return the NumPy result for inspection ---
         return blended_tensor_out
