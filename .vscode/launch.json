@@ -18,7 +18,7 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",
                 "CONDA_DEFAULT_ENV": "texture",
-                "CUDA_VISIBLE_DEVICES": "1"
+                "CUDA_VISIBLE_DEVICES": "0"
             },
             "justMyCode": true,
 
