@@ -1,7 +1,7 @@
 log:
   exp_name: rabbit_2
 guide:
-  text: A rabbit with pastel pink and white fur, {} view
+  text: A realistic rabbit with pastel pink and white fur, {} view
   append_direction: true
   shape_path: shapes/rabbit.obj
 optim:

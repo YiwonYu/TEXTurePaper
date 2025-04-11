@@ -23,6 +23,7 @@ from src.configs.train_config import TrainConfig
 from src.models.textured_mesh import TexturedMeshModel
 from src.stable_diffusion_depth import StableDiffusion #Base TEXTure - NOT in USE !
 from src.sdxl_depth import SDXL #SDXL base 1.0 + SDXL inpaint 1.0
+from src.stable_diffusion_normal import BlendedLatentDiffusionSDXL
 from src.training.views_dataset import ViewsDataset, MultiviewDataset
 from src.utils import make_path, tensor2numpy
 import time # texture generation time calculation
@@ -37,11 +38,10 @@ class TEXTure:
         self.paint_step = 0
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.ncount = 0
-        self.ncount_1 = 0
         self.texturecount = 0
-        self.image_count = 0  # Counter for valid images
         self.initialized_count = 0
         self.initial_uvmap = []
+        self.background = 'white'
 
         utils.seed_everything(self.cfg.optim.seed)
 
@@ -85,15 +85,18 @@ class TEXTure:
         logger.info(model)
         return model
 
-    def init_diffusion(self) -> Any:
-        diffusion_model = SDXL(self.device, model_name=self.cfg.guide.diffusion_name,
-                                          concept_name=self.cfg.guide.concept_name,
-                                          concept_path=self.cfg.guide.concept_path,
-                                          latent_mode=False,
-                                          min_timestep=self.cfg.optim.min_timestep,
-                                          max_timestep=self.cfg.optim.max_timestep,
-                                          no_noise=self.cfg.optim.no_noise,
-                                          use_inpaint=True, use_autodepth=False)
+    # def init_diffusion(self) -> Any:
+    #     diffusion_model = SDXL(self.device, model_name=self.cfg.guide.diffusion_name,
+    #                                       concept_name=self.cfg.guide.concept_name,
+    #                                       concept_path=self.cfg.guide.concept_path,
+    #                                       latent_mode=False,
+    #                                       min_timestep=self.cfg.optim.min_timestep,
+    #                                       max_timestep=self.cfg.optim.max_timestep,
+    #                                       no_noise=self.cfg.optim.no_noise,
+    #                                       use_inpaint=True, use_autodepth=False)
+        
+    def init_diffusion(self) -> Any:    
+        diffusion_model = BlendedLatentDiffusionSDXL(model_name = "stabilityai/stable-diffusion-xl-base-1.0", device=self.device)
 
         for p in diffusion_model.parameters():
             p.requires_grad = False
@@ -108,15 +111,18 @@ class TEXTure:
         else:
             text_z = []
             text_string = []
-            text_string_origin = ref_text.split('{', 1)[0].strip()
-            text_z_origin = self.diffusion.get_text_embeds([ref_text.split('{', 1)[0].strip()])
+            text_string_origin = ref_text.split('{', 1)[0].strip().rstrip(',')
+            # text_z_origin = self.diffusion.get_text_embeds([ref_text.split('{', 1)[0].strip()])
+            text_z_origin = None
             for d in self.view_dirs:
                 text = ref_text.format(d)
                 text_string.append(text)
+                text_z = text_string
                 logger.info(text)
                 negative_prompt = None
                 logger.info(negative_prompt)
-                text_z.append(self.diffusion.get_text_embeds([text], negative_prompt=negative_prompt))
+                # text_z.append(self.diffusion.get_text_embeds([text], negative_prompt=negative_prompt))
+                
         return text_z, text_string, text_z_origin, text_string_origin
 
     def init_dataloaders(self) -> Dict[str, DataLoader]:
@@ -231,24 +237,24 @@ class TEXTure:
         logger.info(f'Painting from theta: {theta}, phi: {phi}, radius: {radius}')
 
         # Set background image
-        if self.cfg.guide.use_background_color:
-            background = torch.Tensor([0, 0.8, 0]).to(self.device)
-        else:
-            #background image를 grid size로 맞춤
-            #self.back_im.unsqueeze(0) : [1, 3, 1024, 1024]
-            background = F.interpolate(self.back_im.unsqueeze(0),
-                                       (self.cfg.render.train_grid_size, self.cfg.render.train_grid_size),
-                                       mode='bilinear', align_corners=False)
-
+        # if self.cfg.guide.use_background_color:
+        #     background = torch.Tensor([0, 0.8, 0]).to(self.device)
+        # else:
+        #     #background image를 grid size로 맞춤
+        #     #self.back_im.unsqueeze(0) : [1, 3, 1024, 1024]
+        #     background = F.interpolate(self.back_im.unsqueeze(0),
+        #                                (self.cfg.render.train_grid_size, self.cfg.render.train_grid_size),
+        #                                mode='bilinear', align_corners=False)
+        self.background = 'white'
         # Render from viewpoint
         # 여기서 정면 시작, Rgb 이미지, depth를 뽑는다.
         # outputs[Tensor] : image, mask, background, foreground, depth, normals, render_cache(uv_features, face_normals, face_idx, depth_map), texture_map
-        outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background)
+        outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=self.background)
         render_cache = outputs['render_cache']
         rgb_render_raw = outputs['image']  # Render where missing values have special color
         depth_render = outputs['depth']
         # Render again with the median value to use as rgb, we shouldn't have color leakage, but just in case
-        outputs = self.mesh_model.render(background=background,
+        outputs = self.mesh_model.render(background=self.background,
                                          render_cache=render_cache, use_median=self.paint_step > 1)
         rgb_render = outputs['image']
         # Render meta texture map
@@ -256,6 +262,7 @@ class TEXTure:
                                              use_meta_texture=True, render_cache=render_cache)
 
         z_normals = outputs['normals'][:, -1:, :, :].clamp(0, 1)
+        z_normals_all = outputs['normals'].clamp(0, 1)
         z_normals_cache = meta_output['image'].clamp(0, 1)
         edited_mask = meta_output['image'].clamp(0, 1)[:, 1:2]
 
@@ -274,7 +281,7 @@ class TEXTure:
             text_string = self.text_string
         logger.info(f'text: {text_string}')
         
-        update_mask, generate_mask, refine_mask = self.calculate_trimap(rgb_render_raw=rgb_render_raw,
+        update_mask, generate_mask, refine_mask, all_mask = self.calculate_trimap(rgb_render_raw=rgb_render_raw,
                                                                         depth_render=depth_render,
                                                                         z_normals=z_normals,
                                                                         z_normals_cache=z_normals_cache,
@@ -295,6 +302,8 @@ class TEXTure:
         cropped_rgb_render = crop(rgb_render)
         cropped_depth_render = crop(depth_render)
         cropped_update_mask = crop(update_mask)
+        cropped_generate_mask = crop(generate_mask)
+        cropped_normal = crop(z_normals_all)
         self.log_train_image(cropped_rgb_render, name='cropped_input')
 
         checker_mask = None
@@ -313,7 +322,12 @@ class TEXTure:
                 strength=1.0, update_mask=cropped_update_mask,
                 fixed_seed=self.cfg.optim.seed,
                 check_mask=checker_mask,
-                intermediate_vis=self.cfg.log.vis_diffusion_steps)
+                intermediate_vis=self.cfg.log.vis_diffusion_steps, 
+                all_mask=all_mask,
+                generate_mask=cropped_generate_mask,
+                paint_step=self.paint_step,
+                path=self.train_renders_path,
+                z_normal = cropped_normal)
         self.log_train_image(cropped_rgb_output, name='direct_output')
         self.log_diffusion_steps(steps_vis)
 
@@ -328,7 +342,7 @@ class TEXTure:
 
         # Project back
         object_mask = outputs['mask']
-        fitted_pred_rgb, _ = self.project_back(render_cache=render_cache, background=background, rgb_output=rgb_output,
+        fitted_pred_rgb, _ = self.project_back(render_cache=render_cache, background=self.background, rgb_output=rgb_output,
                                                object_mask=object_mask, update_mask=update_mask, z_normals=z_normals,
                                                z_normals_cache=z_normals_cache, initial=False)
         self.log_train_image(fitted_pred_rgb, name='fitted')
@@ -345,8 +359,11 @@ class TEXTure:
         cropped_renders = []
         cropped_depths = []
         cropped_masks = []
+        cropped_generate_masks = []
+        cropped_all_masks = []
         render_caches = []
         object_masks = []
+        generate_masks = []
         update_masks = []
         z_normals_list = []
         z_normals_caches = []
@@ -355,7 +372,10 @@ class TEXTure:
         min_ws = []
         max_hs = []
         max_ws = []
-
+        depth_renders = []
+        edited_masks = []
+        refine_masks = []
+        normals = []
         for idx, phi in enumerate(phi_angles):
             self.idx = idx
             phi = phi - np.deg2rad(self.cfg.render.front_offset)
@@ -374,12 +394,12 @@ class TEXTure:
 
             # Rendering Process : Kaolin을 이용해 depthMap, Rendered image를 얻음
             # outputs[Tensor] : image, mask, background, foreground, depth, normals, render_cache(uv_features, face_normals, face_idx, depth_map), texture_map
-            outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background)
+            outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=self.background)
             render_cache = outputs['render_cache']
             rgb_render_raw = outputs['image']  # Render where missing values have special color
             depth_render = outputs['depth']
             # Render again with the median value to use as rgb, we shouldn't have color leakage, but just in case
-            outputs = self.mesh_model.render(background=background,
+            outputs = self.mesh_model.render(background=self.background,
                                             render_cache=render_cache, use_median=self.paint_step > 1)
             rgb_render = outputs['image']
             # Render meta texture map - Kaolin 사용
@@ -387,7 +407,9 @@ class TEXTure:
                                                 use_meta_texture=True, render_cache=render_cache)
 
             z_normals = outputs['normals'][:, -1:, :, :].clamp(0, 1)
-            z_normals_cache = meta_output['image'].clamp(0, 1)
+            z_normals_all = outputs['normals'].clamp(0, 1)
+            # z_normals_cache = meta_output['image'].clamp(0, 1)
+            z_normals_cache = meta_output['normals'][:,-1:,:,:].clamp(0, 1)
             edited_mask = meta_output['image'].clamp(0, 1)[:, 1:2]
 
             self.log_train_image(rgb_render, 'rendered_input_initial')
@@ -410,7 +432,7 @@ class TEXTure:
             logger.info(f'text: {text_string_origin}')
             
             #Making Trimap_original
-            update_mask, generate_mask, refine_mask = self.calculate_trimap(rgb_render_raw=rgb_render_raw,
+            update_mask, generate_mask, refine_mask, all_mask = self.calculate_trimap(rgb_render_raw=rgb_render_raw,
                 depth_render=depth_render,
                 z_normals=z_normals,
                 z_normals_cache=z_normals_cache,
@@ -431,11 +453,16 @@ class TEXTure:
             cropped_rgb_render = crop(rgb_render)
             cropped_depth_render = crop(depth_render)
             cropped_update_mask = crop(update_mask)
+            cropped_all_mask = crop(all_mask)
+            cropped_generate_mask = crop(generate_mask)
+            cropped_normal_all = crop(z_normals_all)
 
             #Add to list for concatenate
             cropped_renders.append(cropped_rgb_render)
             cropped_depths.append(cropped_depth_render)
             cropped_masks.append(cropped_update_mask)
+            cropped_generate_masks.append(cropped_generate_mask)
+            cropped_all_masks.append(cropped_all_mask)
             
             # Save the required tensors for each view
             rgb_renders.append(rgb_render)
@@ -444,6 +471,12 @@ class TEXTure:
             update_masks.append(update_mask)
             z_normals_list.append(z_normals)
             z_normals_caches.append(z_normals_cache)
+            normals.append(cropped_normal_all)
+
+            depth_renders.append(depth_render)
+            edited_masks.append(edited_mask)
+            refine_masks.append(refine_mask)
+            generate_masks.append(generate_mask)
 
             min_hs.append(min_h)
             min_ws.append(min_w)
@@ -460,7 +493,9 @@ class TEXTure:
         cropped_renders_r = [F.interpolate(img, size=(min_height, min_width), mode='bilinear', align_corners=False) for img in cropped_renders]
         cropped_depths_r = [F.interpolate(img, size=(min_height, min_width), mode='bilinear', align_corners=False) for img in cropped_depths]
         cropped_masks_r = [F.interpolate(img, size=(min_height, min_width), mode='bilinear', align_corners=False) for img in cropped_masks]
-
+        cropped_generate_masks_r = [F.interpolate(img, size=(min_height, min_width), mode='bilinear', align_corners=False) for img in cropped_generate_masks]
+        cropped_all_masks_r = [F.interpolate(img, size=(min_height, min_width), mode='bilinear', align_corners=False) for img in cropped_all_masks]
+        cropped_all_normals_r = [F.interpolate(img, size=(min_height, min_width), mode='bilinear', align_corners=False) for img in normals]
         # Concatenate the cropped images into a 2x2 grid
         cropped_rgb_render_2x2 = torch.cat([
             torch.cat([cropped_renders_r[0], cropped_renders_r[1]], dim=3),
@@ -474,11 +509,26 @@ class TEXTure:
             torch.cat([cropped_masks_r[0], cropped_masks_r[1]], dim=3),
             torch.cat([cropped_masks_r[2], cropped_masks_r[3]], dim=3)
         ], dim=2)
+        cropped_generate_mask_2x2 = torch.cat([
+            torch.cat([cropped_generate_masks_r[0], cropped_generate_masks_r[1]], dim=3),
+            torch.cat([cropped_generate_masks_r[2], cropped_generate_masks_r[3]], dim=3)
+        ], dim=2)
+        cropped_all_mask_2x2 = torch.cat([
+            torch.cat([cropped_all_masks_r[0], cropped_all_masks_r[1]], dim=3),
+            torch.cat([cropped_all_masks_r[2], cropped_all_masks_r[3]], dim=3)
+        ], dim=2)
+        cropped_all_normal_2x2 = torch.cat([
+            torch.cat([cropped_all_normals_r[0], cropped_all_normals_r[1]], dim=3),
+            torch.cat([cropped_all_normals_r[2], cropped_all_normals_r[3]], dim=3)
+        ], dim=2)
 
         # Resize the concatenated image to the required size for the diffusion process
         cropped_rgb_render_2x2 = F.interpolate(cropped_rgb_render_2x2, (1024, 1024), mode='bilinear', align_corners=False)
         cropped_depth_render_2x2 = F.interpolate(cropped_depth_render_2x2, (1024, 1024), mode='bilinear', align_corners=False)
         cropped_update_mask_2x2 = F.interpolate(cropped_update_mask_2x2, (1024, 1024), mode='bilinear', align_corners=False)
+        cropped_generate_mask_2x2 = F.interpolate(cropped_generate_mask_2x2, (1024, 1024), mode='bilinear', align_corners=False)
+        cropped_all_mask_2x2 = F.interpolate(cropped_all_mask_2x2, (1024, 1024), mode='bilinear', align_corners=False)
+        cropped_all_normal_2x2 = F.interpolate(cropped_all_normal_2x2, (1024, 1024), mode='bilinear', align_corners=False)
 
         # self.save_vu_image(cropped_depth_render_2x2, 'cropped_depth_render_2x2')
         # self.save_vu_image(cropped_rgb_render_2x2, 'cropped_rgb_render_2x2')
@@ -494,14 +544,20 @@ class TEXTure:
 
         # Diffusion Process with 2x2 grid
         cropped_rgb_output, steps_vis = self.diffusion.img2img_step(
-            text_z_origin, 
+            # text_z_origin, 
+            text_string_origin, 
             cropped_rgb_render_2x2.detach(),
             cropped_depth_render_2x2.detach(),
             guidance_scale=self.cfg.guide.guidance_scale,
             strength=1.0, update_mask=cropped_update_mask_2x2,
             fixed_seed=self.cfg.optim.seed,
-            check_mask=checker_mask,
-            intermediate_vis=self.cfg.log.vis_diffusion_steps)
+            check_mask=None,
+            intermediate_vis=self.cfg.log.vis_diffusion_steps,
+            all_mask=cropped_all_mask_2x2,
+            generate_mask=cropped_generate_mask_2x2,
+            paint_step=self.paint_step,
+            path=self.train_renders_path,
+            z_normal=cropped_all_normal_2x2)
         
         self.log_train_image(cropped_rgb_output, name='direct_output_initial')
         self.log_diffusion_steps(steps_vis)
@@ -556,7 +612,7 @@ class TEXTure:
 
             fitted_pred_rgb, fitted_z_normals = self.project_back(
                 render_cache=render_caches[i], 
-                background=background, 
+                background=self.background, 
                 rgb_output=rgb_output,
                 object_mask=object_masks[i], 
                 update_mask=update_masks[i], 
@@ -582,7 +638,7 @@ class TEXTure:
         dim = self.cfg.render.eval_grid_size
         # data로 이미지 뽑는것 (분홍색, initial)
         outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius,
-                                         dims=(dim, dim), background='white')
+                                         dims=(dim, dim), background=self.background)
         z_normals = outputs['normals'][:, -1:, :, :].clamp(0, 1)
         rgb_render = outputs['image']  # .permute(0, 2, 3, 1).contiguous().clamp(0, 1)
         
@@ -615,6 +671,7 @@ class TEXTure:
 
         return rgb_render, texture_rgb, depth_render, pred_z_normals
 
+    
     def calculate_trimap(self, rgb_render_raw: torch.Tensor,
         depth_render: torch.Tensor,
         z_normals: torch.Tensor, z_normals_cache: torch.Tensor, edited_mask: torch.Tensor,
@@ -635,7 +692,13 @@ class TEXTure:
         object_mask = torch.from_numpy(
             cv2.erode(object_mask[0, 0].detach().cpu().numpy(), np.ones((7, 7), np.uint8))).to(
             object_mask.device).unsqueeze(0).unsqueeze(0)
-
+        # background mask 생성
+        background_mask = 1 - object_mask
+        background_mask = torch.from_numpy(
+            cv2.dilate(background_mask[0, 0].detach().cpu().numpy(), np.ones((15, 15), np.uint8))
+            ).to(object_mask.device).unsqueeze(0).unsqueeze(0)  # Dilate를 통해 배경 확장
+        
+        all_mask = torch.clamp(update_mask + background_mask, 0, 1)
         # Generate the refine mask based on the z normals, and the edited mask
 
         #update mask 기반 refine_mask shape 일치하게
@@ -691,7 +754,7 @@ class TEXTure:
             self.log_train_image(shaded_rgb_vis, 'shaded_input')
             self.log_train_image(trimap_vis, 'trimap')
 
-        return update_mask, generate_mask, refine_mask
+        return update_mask, generate_mask, refine_mask, all_mask
 
     def generate_checkerboard(self, update_mask_inner, improve_z_mask_inner, update_mask_base_inner):
         checkerboard = torch.ones((1, 1, 64 // 2, 64 // 2)).to(self.device)
@@ -760,14 +823,14 @@ class TEXTure:
 
         # 3) Get Extract the masked region from the rgb_output
         masked_part_3ch = masked_part.unsqueeze(1).expand_as(rgb_output)
-        combined_mask = torch.where(masked_part_3ch.bool(), rgb_output, background)
+        # combined_mask = torch.where(masked_part_3ch.bool(), rgb_output, background)
 
         #Adam optimizer for updating model parameter
         optimizer = torch.optim.Adam(self.mesh_model.get_params(), lr=self.cfg.optim.lr, betas=(0.9, 0.99), eps=1e-15)
 
         for i in tqdm(range(200), desc='fitting mesh colors'):
             optimizer.zero_grad()
-            outputs = self.mesh_model.render(background=background,
+            outputs = self.mesh_model.render(background=self.background,
                                              render_cache=render_cache,
                                              )
             rgb_render = outputs['image']
@@ -803,9 +866,9 @@ class TEXTure:
             # 학습 대상에 blur 씌우는중
             # 학습 하는 것에 Blur 씌우면 차이가 없다.
             # -----------------------------------MEDIAN FILTER----------------------------------------
-            if i == 199:
-                rgb_render = self.apply_median_filter((11,11), rgb_render)
-
+            # if i == 199:
+                # rgb_render = self.apply_median_filter((11,11), rgb_render)
+            # ----------------------------------------------------------------------------------------
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
             masked_mask = mask[mask > 0]
@@ -963,7 +1026,7 @@ class TEXTure:
         Args:
             img1_tensor: Base image (e.g., full rabbit) [1, 3, H, W], float [0,1]
             img2_tensor: Image with texture patches (and black elsewhere on rabbit) [1, 3, H, W], float [0,1]
-            patch_mask_tensor: Mask defining patches (1=patch, 0=rabbit, 1=background) [1, 1, H, W], float [0,1]
+            patch_mask_tensor: Mask defining patches (1=patch, 0=rabbit, 1=self.background) [1, 1, H, W], float [0,1]
             smooth_kernel_size: Size of Gaussian kernel to smooth img2.
             feather_kernel_size: Size of Gaussian kernel to feather patch mask.
             levels: Number of Laplacian pyramid levels.
@@ -1172,7 +1235,7 @@ class TEXTure:
         Args:
             img1_tensor: Base image [1, 3, H, W], float [0,1]
             img2_tensor: Texture image (patches=texture, rabbit=white, bg=white) [1, 3, H, W], float [0,1]
-            patch_mask_tensor: Mask (1=patch, 0=rabbit, 1=background) [1, 1, H, W], float [0,1]
+            patch_mask_tensor: Mask (1=patch, 0=rabbit, 1=self.background) [1, 1, H, W], float [0,1]
             blend_weight: How strongly to blend img2's patches (0=img1 only, 1=img2 replaces img1 in patches).
             feather_kernel_size: Size of Gaussian kernel to feather patch mask edges.
         Returns:

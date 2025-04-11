@@ -1206,3 +1206,223 @@ UnboundLocalError: local variable 'rgb_render' referenced before assignment
 2025-04-10 17:18:29,935 - INFO - [texture_app] - Initializing TEXTure Trainer...
 2025-04-10 17:18:53,772 - INFO - [texture_app] - TEXTure Trainer Initialized.
 2025-04-10 17:18:53,772 - INFO - [texture_app] - Starting painting...
+2025-04-10 17:40:22,263 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-10 17:40:24,441 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-10 17:40:27,107 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-10 17:40:27,107 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-10 17:40:27,107 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-10 17:40:27,107 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-10 17:40:27,107 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-10 17:40:27,107 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-10 17:40:46,798 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-10 17:40:46,798 - INFO - [texture_app] - Starting painting...
+2025-04-10 17:44:31,695 - INFO - [texture_app] - Painting finished.
+2025-04-10 17:44:31,696 - INFO - [texture_app] - GPU memory allocated after: 26.80 GB
+2025-04-10 17:44:31,697 - INFO - [texture_app] - GPU memory reserved after: 36.93 GB
+2025-04-10 17:44:31,697 - INFO - [texture_app] - Elapsed time: 244.59 seconds
+2025-04-10 17:44:31,697 - INFO - [texture_app] - Script finished successfully.
+2025-04-10 17:52:22,140 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-10 17:52:24,097 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-10 17:52:27,796 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-10 17:52:27,796 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-10 17:52:27,796 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-10 17:52:27,797 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-10 17:52:27,797 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-10 17:52:27,797 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-10 17:52:49,872 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-10 17:52:49,872 - INFO - [texture_app] - Starting painting...
+2025-04-10 17:56:36,604 - INFO - [texture_app] - Painting finished.
+2025-04-10 17:56:36,605 - INFO - [texture_app] - GPU memory allocated after: 26.80 GB
+2025-04-10 17:56:36,605 - INFO - [texture_app] - GPU memory reserved after: 36.93 GB
+2025-04-10 17:56:36,605 - INFO - [texture_app] - Elapsed time: 248.81 seconds
+2025-04-10 17:56:36,605 - INFO - [texture_app] - Script finished successfully.
+2025-04-11 11:32:12,853 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 11:32:15,613 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 11:35:14,995 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 11:35:17,521 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 12:20:12,986 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 12:20:15,215 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 12:20:38,593 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 12:20:40,641 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 12:20:43,744 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 12:20:43,744 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 12:20:43,744 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 12:20:43,745 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 12:20:43,745 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 12:20:43,745 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 12:24:56,014 - ERROR - [texture_app] - An error occurred during execution:
+Traceback (most recent call last):
+  File "/home/mmai6k_01/TEXTurePaper/scripts/run_texture.py", line 104, in main
+    trainer = TEXTure(cfg)
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 64, in __init__
+    self.text_z, self.text_string ,self.text_z_origin, self.text_string_origin= self.calc_text_embeddings()
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 114, in calc_text_embeddings
+    text_z_origin = self.diffusion.get_text_embeds([ref_text.split('{', 1)[0].strip()])
+  File "/home/mmai6k_01/miniconda3/envs/texture/lib/python3.10/site-packages/diffusers/configuration_utils.py", line 143, in __getattr__
+    raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+AttributeError: 'BlendedLatentDiffusionSDXL' object has no attribute 'get_text_embeds'
+2025-04-11 12:32:10,466 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 12:32:12,240 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 12:32:15,270 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 12:32:15,270 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 12:32:15,270 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 12:32:15,270 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 12:32:15,270 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 12:32:15,270 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 12:32:25,979 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-11 12:32:25,979 - INFO - [texture_app] - Starting painting...
+2025-04-11 12:32:30,026 - ERROR - [texture_app] - An error occurred during execution:
+Traceback (most recent call last):
+  File "/home/mmai6k_01/TEXTurePaper/scripts/run_texture.py", line 113, in main
+    trainer.paint()
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 161, in paint
+    self.paint_viewpoint_initial(data, UV_MAP=False, initial=False)
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 544, in paint_viewpoint_initial
+    cropped_rgb_output, steps_vis = self.diffusion.img2img_step(
+  File "/home/mmai6k_01/TEXTurePaper/src/stable_diffusion_normal.py", line 282, in img2img_step
+    ) = self.encode_prompt(
+  File "/home/mmai6k_01/miniconda3/envs/texture/lib/python3.10/site-packages/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py", line 367, in encode_prompt
+    batch_size = prompt_embeds.shape[0]
+AttributeError: 'NoneType' object has no attribute 'shape'
+2025-04-11 12:33:13,489 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 12:33:16,265 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 12:33:19,521 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 12:33:19,521 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 12:33:19,521 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 12:33:19,521 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 12:33:19,521 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 12:33:19,522 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 12:33:30,682 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-11 12:33:30,682 - INFO - [texture_app] - Starting painting...
+2025-04-11 12:34:43,238 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 12:34:45,056 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 12:34:48,215 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 12:34:48,215 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 12:34:48,215 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 12:34:48,215 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 12:34:48,215 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 12:34:48,215 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 12:34:58,851 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-11 12:34:58,851 - INFO - [texture_app] - Starting painting...
+2025-04-11 12:38:52,049 - INFO - [texture_app] - Painting finished.
+2025-04-11 12:38:52,050 - INFO - [texture_app] - GPU memory allocated after: 12.42 GB
+2025-04-11 12:38:52,051 - INFO - [texture_app] - GPU memory reserved after: 20.77 GB
+2025-04-11 12:38:52,051 - INFO - [texture_app] - Elapsed time: 243.84 seconds
+2025-04-11 12:38:52,051 - INFO - [texture_app] - Script finished successfully.
+2025-04-11 12:45:17,475 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 12:45:19,626 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 12:45:22,739 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 12:45:22,740 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 12:45:22,740 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 12:45:22,740 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 12:45:22,740 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 12:45:22,740 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 12:45:33,250 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-11 12:45:33,251 - INFO - [texture_app] - Starting painting...
+2025-04-11 12:50:25,654 - INFO - [texture_app] - Painting finished.
+2025-04-11 12:50:25,656 - INFO - [texture_app] - GPU memory allocated after: 12.42 GB
+2025-04-11 12:50:25,656 - INFO - [texture_app] - GPU memory reserved after: 20.79 GB
+2025-04-11 12:50:25,656 - INFO - [texture_app] - Elapsed time: 302.92 seconds
+2025-04-11 12:50:25,656 - INFO - [texture_app] - Script finished successfully.
+2025-04-11 12:50:42,689 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 12:50:45,156 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 12:50:48,244 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 12:50:48,244 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 12:50:48,244 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 12:50:48,245 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 12:50:48,245 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 12:50:48,245 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 12:50:59,058 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-11 12:50:59,058 - INFO - [texture_app] - Starting painting...
+2025-04-11 12:54:31,194 - INFO - [texture_app] - Painting finished.
+2025-04-11 12:54:31,195 - INFO - [texture_app] - GPU memory allocated after: 12.40 GB
+2025-04-11 12:54:31,195 - INFO - [texture_app] - GPU memory reserved after: 20.83 GB
+2025-04-11 12:54:31,195 - INFO - [texture_app] - Elapsed time: 222.95 seconds
+2025-04-11 12:54:31,195 - INFO - [texture_app] - Script finished successfully.
+2025-04-11 12:59:16,887 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 12:59:19,081 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 12:59:22,130 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 12:59:22,130 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 12:59:22,131 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 12:59:22,131 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 12:59:22,131 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 12:59:22,131 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 12:59:32,820 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-11 12:59:32,820 - INFO - [texture_app] - Starting painting...
+2025-04-11 12:59:32,836 - ERROR - [texture_app] - An error occurred during execution:
+Traceback (most recent call last):
+  File "/home/mmai6k_01/TEXTurePaper/scripts/run_texture.py", line 113, in main
+    trainer.paint()
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 148, in paint
+    self.evaluate(self.dataloaders['val'], self.eval_renders_path)
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 188, in evaluate
+    preds, textures, depths, normals = self.eval_render(data)
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 640, in eval_render
+    dims=(dim, dim), background=background)
+NameError: name 'background' is not defined
+2025-04-11 13:01:51,598 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 13:01:53,771 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 13:01:57,361 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 13:01:57,361 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 13:01:57,361 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 13:01:57,362 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 13:01:57,362 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 13:01:57,362 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 13:02:08,167 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-11 13:02:08,168 - INFO - [texture_app] - Starting painting...
+2025-04-11 13:02:08,190 - ERROR - [texture_app] - An error occurred during execution:
+Traceback (most recent call last):
+  File "/home/mmai6k_01/TEXTurePaper/scripts/run_texture.py", line 113, in main
+    trainer.paint()
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 148, in paint
+    self.evaluate(self.dataloaders['val'], self.eval_renders_path)
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 188, in evaluate
+    preds, textures, depths, normals = self.eval_render(data)
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 640, in eval_render
+    dims=(dim, dim), background=self.background)
+AttributeError: 'TEXTure' object has no attribute 'background'
+2025-04-11 13:03:37,817 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 13:03:39,675 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 13:03:43,353 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 13:03:43,353 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 13:03:43,353 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 13:03:43,354 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 13:03:43,354 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 13:03:43,354 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 13:03:53,582 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-11 13:03:53,582 - INFO - [texture_app] - Starting painting...
+2025-04-11 13:04:07,792 - ERROR - [texture_app] - An error occurred during execution:
+Traceback (most recent call last):
+  File "/home/mmai6k_01/TEXTurePaper/scripts/run_texture.py", line 113, in main
+    trainer.paint()
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 162, in paint
+    self.paint_viewpoint_initial(data, UV_MAP=False, initial=False)
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 613, in paint_viewpoint_initial
+    fitted_pred_rgb, fitted_z_normals = self.project_back(
+  File "/home/mmai6k_01/TEXTurePaper/src/training/trainer.py", line 825, in project_back
+    combined_mask = torch.where(masked_part_3ch.bool(), rgb_output, background)
+TypeError: where() received an invalid combination of arguments - got (Tensor, Tensor, str), but expected one of:
+ * (Tensor condition)
+ * (Tensor condition, Tensor input, Tensor other, *, Tensor out)
+ * (Tensor condition, Number self, Tensor other)
+      didn't match because some of the arguments have invalid types: ([32;1mTensor[0m, [31;1mTensor[0m, [31;1mstr[0m)
+ * (Tensor condition, Tensor input, Number other)
+      didn't match because some of the arguments have invalid types: ([32;1mTensor[0m, [32;1mTensor[0m, [31;1mstr[0m)
+ * (Tensor condition, Number self, Number other)
+      didn't match because some of the arguments have invalid types: ([32;1mTensor[0m, [31;1mTensor[0m, [31;1mstr[0m)
+
+2025-04-11 13:05:19,112 - INFO - [root] - Logging initialized via basicConfig to run_basic.log
+2025-04-11 13:05:21,637 - INFO - [kaolin.render.mesh.nvdiffrast_context] - Cannot import nvdiffrast
+2025-04-11 13:05:24,762 - INFO - [texture_app] - Current working directory: /home/mmai6k_01/TEXTurePaper
+2025-04-11 13:05:24,762 - INFO - [texture_app] - Starting training/evaluation.
+2025-04-11 13:05:24,762 - INFO - [texture_app] - Running config file (from argv): --config_path=configs/text_guided/rabbit_2.yaml
+2025-04-11 13:05:24,763 - INFO - [texture_app] - GPU memory allocated before: 0.00 GB
+2025-04-11 13:05:24,763 - INFO - [texture_app] - GPU memory reserved before: 0.00 GB
+2025-04-11 13:05:24,763 - INFO - [texture_app] - Initializing TEXTure Trainer...
+2025-04-11 13:05:34,875 - INFO - [texture_app] - TEXTure Trainer Initialized.
+2025-04-11 13:05:34,875 - INFO - [texture_app] - Starting painting...
+2025-04-11 13:09:17,393 - INFO - [texture_app] - Painting finished.
+2025-04-11 13:09:17,394 - INFO - [texture_app] - GPU memory allocated after: 12.19 GB
+2025-04-11 13:09:17,394 - INFO - [texture_app] - GPU memory reserved after: 20.71 GB
+2025-04-11 13:09:17,394 - INFO - [texture_app] - Elapsed time: 232.63 seconds
+2025-04-11 13:09:17,395 - INFO - [texture_app] - Script finished successfully.
