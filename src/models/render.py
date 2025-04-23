@@ -2,7 +2,6 @@ import kaolin as kal
 import torch
 import numpy as np
 from loguru import logger
-
 class Renderer:
     # from https://github.com/threedle/text2mesh
 
@@ -71,8 +70,7 @@ class Renderer:
             image_features += torch.rand((1,1,1,3)).to(self.device) * (1 - mask)
 
         return image_features.permute(0, 3, 1, 2), mask.permute(0, 3, 1, 2), depth_map.permute(0, 3, 1, 2)
-
-
+ 
     def render_single_view_texture(self, verts, faces, uv_face_attr, texture_map, elev=0, azim=0, radius=2,
                                    look_at_height=0.0, dims=None, background_type='none', render_cache=None):
         dims = self.dim if dims is None else dims
@@ -93,7 +91,7 @@ class Renderer:
             uv_features = uv_features.detach()
 
         else:
-            #logger.info('Using render cache')
+            # logger.info('Using render cache')
             face_normals, uv_features, face_idx, depth_map = render_cache['face_normals'], render_cache['uv_features'], render_cache['face_idx'], render_cache['depth_map']
         mask = (face_idx > -1).float()[..., None]
 

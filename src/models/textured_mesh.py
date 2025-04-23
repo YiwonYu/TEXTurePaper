@@ -23,7 +23,7 @@ def build_cotan_laplacian_torch(points_tensor: torch.Tensor, tris_tensor: torch.
     a, b, c = (tris[:, 0], tris[:, 1], tris[:, 2])
     A = np.take(points, a, axis=1)
     B = np.take(points, b, axis=1)
-    C = np.take(points, c, axis=1) 
+    C = np.take(points, c, axis=1)
 
     eab, ebc, eca = (B - A, C - B, A - C)
     eab = eab / np.linalg.norm(eab, axis=0)[None, :]
@@ -157,18 +157,16 @@ class TexturedMeshModel(nn.Module):
         self.renderer = Renderer(device=self.device, dim=(render_grid_size, render_grid_size),
                                  interpolation_mode=self.opt.texture_interpolation_mode)
         self.env_sphere, self.mesh = self.init_meshes()
-        # self.default_color = [0.8, 0.1, 0.8] # very pink
-        # self.default_color = [1.0, 1.0, 1.0] # white
-        self.default_color = [1.0, 0.82, 0.86] #pastel pink
-        self.background_sphere_colors, self.texture_img, _ = self.init_paint()
+        self.default_color = [0.8, 0.1, 0.8]
+        self.background_sphere_colors, self.texture_img = self.init_paint()
         self.meta_texture_img = nn.Parameter(torch.zeros_like(self.texture_img))
 
-        self.background_sphere_colors_initial = self.background_sphere_colors.clone()
+        """self.background_sphere_colors_initial = self.background_sphere_colors.clone()
         self.texture_img_initial = self.texture_img.clone()
         self.meta_texture_img_initial = self.meta_texture_img.clone()
 
         self.saved_texture_img = []
-        self.saved_meta_texture_img = []
+        self.saved_meta_texture_img = []"""
 
         if self.opt.reference_texture:
             base_texture = torch.Tensor(np.array(Image.open(self.opt.reference_texture).resize(
@@ -271,8 +269,7 @@ class TexturedMeshModel(nn.Module):
             texture = torch.ones(1, 3, self.texture_resolution, self.texture_resolution).cuda() * torch.Tensor(
                 self.default_color).reshape(1, 3, 1, 1).cuda()
         texture_img = nn.Parameter(texture)
-        mask_img = nn.Parameter(texture)
-        return background_sphere_colors, texture_img, mask_img
+        return background_sphere_colors, texture_img
 
     def invert_color(self, color: torch.Tensor) -> torch.Tensor:
         # inverse linear approx to find latent
@@ -338,88 +335,11 @@ class TexturedMeshModel(nn.Module):
 
     def get_params(self):
         return [self.background_sphere_colors, self.texture_img, self.meta_texture_img]
-    
-    def initialize_params(self):
-
-        self.saved_texture_img.append(nn.Parameter(self.texture_img.clone()))
-        self.saved_meta_texture_img.append(nn.Parameter(self.meta_texture_img.clone()))
-        self.background_sphere_colors = nn.Parameter(self.background_sphere_colors_initial.clone())
-
-        self.texture_img = nn.Parameter(self.texture_img_initial.clone())
-        self.meta_texture_img = nn.Parameter(self.meta_texture_img_initial.clone())
-
-    def apply_bilateralFilter(self, d=9, sigma_color=75, sigma_space=75):
-        """
-        Applies Gaussian Blur to self.texture_img and self.meta_texture_img.
-
-        Args:
-            kernel_size (int): Size of the Gaussian kernel (must be odd, e.g., 3, 5, 7).
-            sigma_x (float): Standard deviation in the X direction; 0 lets OpenCV calculate it automatically.
-
-        Returns:
-            None (Modifies self.texture_img and self.meta_texture_img in place)
-        """
-        # Convert tensors to NumPy (H, W, C) format
-        image_np = self.texture_img.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
-        meta_image_np = self.meta_texture_img.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
-
-        # Apply bilateral filtering to each channel separately
-        filtered_channels = [cv2.bilateralFilter(image_np[:, :, i], d, sigma_color, sigma_space) for i in range(3)]
-        meta_filtered_channels = [cv2.bilateralFilter(meta_image_np[:, :, i], d, sigma_color, sigma_space) for i in range(3)]
-
-        # Stack filtered channels and convert back to tensors
-        filtered_np = np.stack(filtered_channels, axis=-1)
-        meta_filtered_np = np.stack(meta_filtered_channels, axis=-1)
-
-        # Convert to torch tensor while preserving dtype and device
-        filtered_tensor = torch.tensor(filtered_np, dtype=self.texture_img.dtype, device=self.texture_img.device).permute(2, 0, 1).unsqueeze(0)
-        meta_filtered_tensor = torch.tensor(meta_filtered_np, dtype=self.meta_texture_img.dtype, device=self.meta_texture_img.device).permute(2, 0, 1).unsqueeze(0)
-
-        # Ensure it's assigned as a model parameter if needed
-        self.texture_img = torch.nn.Parameter(filtered_tensor, requires_grad=True) if isinstance(self.texture_img, torch.nn.Parameter) else filtered_tensor
-        self.meta_texture_img = torch.nn.Parameter(meta_filtered_tensor, requires_grad=True) if isinstance(self.meta_texture_img, torch.nn.Parameter) else meta_filtered_tensor
-
-    def apply_gaussianBlur(self, kernel_size=3, sigma_x=0.5):
-        """
-        Applies Gaussian Blur to self.texture_img and self.meta_texture_img.
-
-        Args:
-            kernel_size (int): Size of the Gaussian kernel (must be odd, e.g., 3, 5, 7).
-            sigma_x (float): Standard deviation in the X direction; 0 lets OpenCV calculate it automatically.
-
-        Returns:
-            None (Modifies self.texture_img and self.meta_texture_img in place)
-        """
-        assert kernel_size % 2 == 1, "Kernel size must be an odd number (e.g., 3, 5, 7)."
-
-        # Convert tensors to NumPy (H, W, C) format
-        image_np = self.texture_img.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
-        meta_image_np = self.meta_texture_img.detach().cpu().squeeze(0).permute(1, 2, 0).numpy()
-
-        # Apply Gaussian Blur to each channel separately
-        blurred_channels = [cv2.GaussianBlur(image_np[:, :, i], (kernel_size, kernel_size), sigma_x) for i in range(3)]
-        meta_blurred_channels = [cv2.GaussianBlur(meta_image_np[:, :, i], (kernel_size, kernel_size), sigma_x) for i in range(3)]
-
-        # Stack channels back together
-        blurred_np = np.stack(blurred_channels, axis=-1)
-        meta_blurred_np = np.stack(meta_blurred_channels, axis=-1)
-
-        # Convert back to torch tensor while preserving dtype and device
-        blurred_tensor = torch.tensor(blurred_np, dtype=self.texture_img.dtype, device=self.texture_img.device).permute(2, 0, 1).unsqueeze(0)
-        meta_blurred_tensor = torch.tensor(meta_blurred_np, dtype=self.meta_texture_img.dtype, device=self.meta_texture_img.device).permute(2, 0, 1).unsqueeze(0)
-
-        # Ensure the result is assigned properly (handles both Parameter and Tensor cases)
-        self.texture_img = torch.nn.Parameter(blurred_tensor, requires_grad=True) if isinstance(self.texture_img, torch.nn.Parameter) else blurred_tensor
-        self.meta_texture_img = torch.nn.Parameter(meta_blurred_tensor, requires_grad=True) if isinstance(self.meta_texture_img, torch.nn.Parameter) else meta_blurred_tensor
-
-        save_tensor_as_image(self.texture_img, "blurred_texture.png")
-        save_tensor_as_image(self.meta_texture_img, "blurred_meta_texture.png")
-
 
     @torch.no_grad()
     def export_mesh(self, path):
         v, f = self.mesh.vertices, self.mesh.faces.int()
-        h0, w0 = 512, 512
+        h0, w0 = 256, 256
         ssaa, name = 1, ''
 
         # v, f: torch Tensor
@@ -486,37 +406,25 @@ class TexturedMeshModel(nn.Module):
         else:
             texture_img = self.texture_img
 
-
         if self.augmentations:
-            # random으로 확장된 vertices 가져옴
             augmented_vertices = self.augment_vertices()
         else:
-            # 아니면 원래 mesh vertices 사용
             augmented_vertices = self.mesh.vertices
 
-        # texture 이미지를 default color의 median value를 사용한다.
         if use_median:
-            # texture 이미지가 default color이랑 얼마나 차이나는지 게산
             diff = (texture_img - torch.tensor(self.default_color).view(1, 3, 1, 1).to(
                 self.device)).abs().sum(axis=1)
-            # 차이가 적은 부분 default mask로 
             default_mask = (diff < 0.1).float().unsqueeze(0)
-            # deafult mask가 아닌 부분의 pixel의 median color를 구함
             median_color = texture_img[0, :].reshape(3, -1)[:, default_mask.flatten() == 0].mean(
                 axis=1)
             texture_img = texture_img.clone()
-            # 업데이트
             with torch.no_grad():
                 texture_img.reshape(3, -1)[:, default_mask.flatten() == 1] = median_color.reshape(-1, 1)
-
         background_type = 'none'
         use_render_back = False
-        # background가 주어지면 render_back을 사용, meta texture 할때 여기 안들아간다.
         if background is not None and type(background) == str:
             background_type = background
             use_render_back = True
-
-        # texture_img 이용해서 rendering view 뽑아낸다. render_cache(face_normals, uv_features, face_idx, depth_map)는 업데이트
         pred_features, mask, depth, normals, render_cache = self.renderer.render_single_view_texture(augmented_vertices,
             self.mesh.faces,
             self.face_attributes,
@@ -528,44 +436,35 @@ class TexturedMeshModel(nn.Module):
             render_cache=render_cache,
             dims=dims,
             background_type=background_type)
-        # mask tensor은 gradient 없어용
+
         mask = mask.detach()
-        # 위에서 background 있으면 use_render_back: True, meta texture할때 안들어감
+
         if use_render_back:
-            # 아래에서 pred_map과 pred_back을 blend 안시킨다.
-            pred_map = pred_features #texture render 시킨 이미지
+            pred_map = pred_features
             pred_back = pred_features
         else:
-            # background가 없으면
             if background is None:
                 pred_back, _, _ = self.renderer.render_single_view(self.env_sphere,
                 background_sphere_colors,
-                elev=theta,    
+                elev=theta,
                 azim=phi,
                 radius=radius,
                 dims=dims,
                 look_at_height=self.dy, calc_depth=False)
-
-            # Background as a one-dimensional tensor, constant 색으로 채운다 -> Meta texture 할때 여기로 들어감
             elif len(background.shape) == 1:
                 pred_back = torch.ones_like(pred_features) * background.reshape(1, 3, 1, 1)
-
-            # background가 있는데 type(background) 가 str 이 아닌경우
             else:
                 pred_back = background
-            # Blending : background와 texture render한 pred_features를 합친다.
+
             pred_map = pred_back * (1 - mask) + pred_features * mask
 
-        # use_meta_texture 안쓰면 위에서 pred_map과 pred_features(raw texture output)이 blend 되서 범위를 벗어남 -> valid range [0, 1]
         if not use_meta_texture:
             pred_map = pred_map.clamp(0, 1)
             pred_features = pred_features.clamp(0, 1)
 
         return {'image': pred_map, 'mask': mask, 'background': pred_back,
                 'foreground': pred_features, 'depth': depth, 'normals': normals, 'render_cache': render_cache,
-                'texture_map': texture_img,
-                'background_sphere_colors': background_sphere_colors,
-                }
+                'texture_map': texture_img}
 
     def draw(self, theta, phi, radius, target_rgb):
         # failed attempt to draw on the texture image
@@ -579,3 +478,82 @@ class TexturedMeshModel(nn.Module):
                                                                      look_at_height=self.dy)
         unique_face_idx = torch.unique(face_idx)
         print('')
+
+    def create_basecolor_exclusion_mask_from_tensor(self, input_tensor):
+        # 배치 차원이 있는지 확인: 만약 있다면, 첫 번째 배치만 사용
+        if input_tensor.dim() == 4:
+            tensor = input_tensor[0]  # shape: [C, H, W]
+        else:
+            tensor = input_tensor  # shape: [H, W, C] 혹은 이미 [C, H, W]
+        
+        # 채널 차원 확인: 보통 처리하기 쉬운 형태는 [H, W, C]
+        if tensor.dim() == 3:
+            if tensor.shape[0] == 3:  # [3, H, W] → 전치
+                img_np = tensor.permute(1, 2, 0).detach().cpu().numpy()
+            elif tensor.shape[-1] == 3:  # 이미 [H, W, 3]
+                img_np = tensor.detach().cpu().numpy()
+            else:
+                raise ValueError("입력 텐서의 채널 수가 3이 아닙니다.")
+        else:
+            raise ValueError("입력 텐서는 3차원이어야 합니다.")
+        
+        # np.array 값은 [H, W, 3] 형태, 값 범위가 [0,1]이므로 0~255로 변환 후 정수형으로 변환
+        img_np = (img_np * 255).astype(np.uint8)
+        H, W, C = img_np.shape
+
+        # 평면화하여 각 픽셀의 색상을 (H*W, 3)로 만듦
+        pixels = img_np.reshape(-1, C)
+        
+        # 고유 색상과 등장 횟수를 계산
+        unique_colors, counts = np.unique(pixels, axis=0, return_counts=True)
+        max_index = np.argmax(counts)
+        base_color = unique_colors[max_index]  # 가장 많이 등장하는 색상 (예: (R, G, B))
+        
+        # 이진 마스크 생성: base_color와 정확히 일치하면 0, 나머지는 1
+        mask = np.ones((H, W), dtype=np.uint8)
+        # 각 픽셀의 색상이 base_color와 일치하는지 확인 (모든 채널이 동일)
+        equal_mask = np.all(img_np == base_color, axis=-1)  # shape: [H, W], boolean
+        mask[equal_mask] = 0  # base_color 픽셀은 0
+        
+        # 최종 마스크를 [1, 1, H, W] 형태로 변환
+        binary_mask = torch.from_numpy(mask.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+        
+        return binary_mask
+
+    def project_uv_mask_to_view(self, uv_features, overlap_mask):
+        """
+        uv_features: 렌더링 시 얻은 UV 그리드, 보통 [B, H_uv, W_uv, 2] 형태.
+        overlap_mask: UV 도메인에서 생성한 이진 마스크, 보통 [B, 1, H_tex, W_tex] (예: texture 해상도)
+        
+        목표: overlap_mask를 현재 뷰(2D 이미지 공간)로 투영(프로젝션)하여 [B, 1, H_img, W_img] 형태의 마스크 생성.
+        
+        절차:
+        1. overlap_mask의 공간 해상도가 텍스처 해상도라면, 이를 uv_features 해상도로 보간(interpolate)합니다.
+        2. texture_mapping 함수는 두 번째 인자로 입력받은 텐서의 채널 수가 uv_features의 마지막 차원(즉, 2)와 맞아야 하므로,
+            overlap_mask를 2채널([B, 2, H_uv, W_uv])로 확장합니다.
+        3. uv_features를 그리드로 사용하여 texture_mapping을 호출하면, 2D 이미지 공간상의 투영된 마스크가 나옵니다.
+        4. 결과가 여러 채널이면 평균하여 단일 채널 마스크로 만듭니다.
+        """
+        # (1) uv_features를 grid로 사용하기 위해, 만약 uv_features가 [B, H_uv, W_uv, 2]가 아니라면 변환.
+        if uv_features.dim() == 4 and uv_features.shape[-1] != 2:
+            uv_grid = uv_features.permute(0, 2, 3, 1)
+        else:
+            uv_grid = uv_features  # [B, H_uv, W_uv, 2]
+
+        # (2) overlap_mask가 [B,1,H_tex,W_tex] 형태라고 가정하면, 먼저 텍스처 해상도 H_tex, W_tex
+        #     이 값을 uv_grid 해상도 (예: H_uv, W_uv)로 보간합니다.
+        overlap_mask_resized = F.interpolate(overlap_mask, size=(uv_grid.shape[1], uv_grid.shape[2]),
+                                            mode='bilinear', align_corners=False)
+        # (3) texture_mapping 함수는 두 번째 입력의 채널 수가 grid의 마지막 차원(2)와 맞아야 하므로, 
+        #     overlap_mask_resized [B,1,H_uv,W_uv]를 2채널로 확장.
+        overlap_mask_2ch = overlap_mask_resized.repeat(1, 2, 1, 1)
+        
+        # (4) texture_mapping: uv_grid ( [B, H_uv, W_uv, 2] )를 사용하여 overlap_mask_2ch를 2D 이미지 공간으로 투영.
+        projected_mask = kal.render.mesh.texture_mapping(uv_grid, overlap_mask_2ch,
+                                                        mode=self.renderer.interpolation_mode)
+        # projected_mask 결과가 [B, 2, H_img, W_img]일 가능성이 있으므로, 평균하여 단일 채널로 만듭니다.
+        # 먼저, 프로젝트 결과가 PyTorch 표준 형식인 [B, C, H, W]가 되도록 확인하고,
+        projected_mask = torch.mean(projected_mask, dim=3, keepdim=True)
+        projected_mask = projected_mask.permute(0, 3, 1, 2)  
+        
+        return projected_mask
